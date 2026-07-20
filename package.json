@@ -1,6 +1,6 @@
 {
   "name": "@structupath/pi-steel",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Structural steel estimating skills for the Pi coding agent — AISC takeoffs, bills of material, tonnage calcs, plate nesting with burn-table DXF output, and vendor RFQ generation.",
   "type": "module",
   "keywords": [
