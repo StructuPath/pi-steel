@@ -163,11 +163,12 @@ Output file: `[ProjectName]_RFQ_Material_List.xlsx`
 5. Group remaining items by material type (W-shapes → Plates → Flat Bar)
 6. If there's a stock purchase section, use those for plates/flat bar instead of individual pieces
 7. Build the RFQ spreadsheet using openpyxl following the format above
-8. Add formulas for totals and verify the SUM ranges cover exactly the data rows (formulas calculate when the vendor opens the file in Excel)
-9. Add nesting/drop reference from the estimate notes
+8. Add formulas for totals and verify the SUM ranges cover exactly the data rows
+9. Add nesting/drop reference from the estimate notes — or, if the `steel-nest` skill has been run for this job, read its `rfq_nesting.json` output straight into the table
 10. Add standard terms & conditions with profile values substituted
 11. Insert logo if configured
-12. Save the file and present it to the user
+12. Save the file, then run `python3 scripts/recalc.py <output.xlsx>` so formula values are computed (openpyxl writes formulas but never calculates them)
+13. Verify no formula errors and present the file to the user
 
 ## Common Variations
 

@@ -1,0 +1,38 @@
+{
+  "job_name": "SO-XXXX  Short description",
+  "customer": "Customer name",
+
+  "_comment_settings": "Cut/gap in inches. kerf = torch cut width (plasma ~0.06, oxy ~0.1, laser ~0.02). part_gap = clearance between parts on top of kerf. edge_margin = keep-out from plate edge (clamp/grip zone). density lb/in^3: A36 steel = 0.2836, aluminum = 0.098, stainless 304 = 0.289.",
+  "settings": {
+    "kerf_in": 0.06,
+    "part_gap_in": 0.25,
+    "edge_margin_in": 0.5,
+    "thickness_in": 0.5,
+    "density_lb_in3": 0.2836
+  },
+
+  "_comment_stock": "One entry per plate size you have on hand. qty = how many sheets available (or set \"unlimited\": true to buy as many as needed). Price EITHER by cost_per_lb OR cost_per_sheet — cost_per_lb is preferred because it also values the scrap.",
+  "stock": [
+    {
+      "name": "A36 Plate 1/2\"",
+      "width": 96,
+      "height": 48,
+      "thickness": 0.5,
+      "qty": 4,
+      "cost_per_lb": 0.92
+    }
+  ],
+
+  "_comment_parts": "One entry per unique part. width/height in inches (bounding box for irregular parts). qty = pieces needed. rotatable=false to lock grain/rolling direction. shape: \"rect\" nests exactly; \"irregular\" nests by bounding box — add \"area\" (true cut area in^2) for exact weight/cost on those.",
+  "_comment_holes": "Optional per-part \"holes\": each hole's x,y is its CENTER measured from the part's lower-left corner. Round hole = {\"dia\": D, \"x\":, \"y\":}. Rectangular cutout = {\"w\":, \"h\":, \"x\":, \"y\":}. Holes are subtracted from weight/cost, rotate with the part, and are cut as real geometry on the HOLES layer of the burn-table DXF.",
+  "parts": [
+    { "name": "Part A", "width": 12, "height": 8,  "qty": 6,  "shape": "rect",
+      "holes": [
+        { "dia": 0.875, "x": 2, "y": 2 },
+        { "dia": 0.875, "x": 10, "y": 6 }
+      ] },
+    { "name": "Part B", "width": 10, "height": 10, "qty": 4,  "shape": "irregular", "area": 62 },
+    { "name": "Part C", "width": 24, "height": 3,  "qty": 10, "shape": "rect", "rotatable": false,
+      "holes": [ { "w": 3, "h": 1, "x": 12, "y": 1.5 } ] }
+  ]
+}
