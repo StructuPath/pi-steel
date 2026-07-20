@@ -1,0 +1,153 @@
+[
+  {
+    "grade": "A992",
+    "description": "Standard specification for structural steel shapes",
+    "typical_use": "W-shapes (wide flange beams and columns)",
+    "Fy_ksi": 50,
+    "Fu_ksi": 65,
+    "Fy_Fu_ratio_max": 0.85,
+    "elongation_pct": 18,
+    "weldability": "Excellent — no preheat typically required",
+    "notes": "Default grade for all W-shapes. Replaced A36 as standard."
+  },
+  {
+    "grade": "A500 Gr. B",
+    "description": "Cold-formed welded/seamless structural tubing — round",
+    "typical_use": "HSS round shapes, round pipe columns",
+    "Fy_ksi": 42,
+    "Fu_ksi": 58,
+    "elongation_pct": 23,
+    "weldability": "Good — may need preheat for thick walls",
+    "notes": "Standard grade for round HSS. Check wall thickness for weld requirements."
+  },
+  {
+    "grade": "A500 Gr. C",
+    "description": "Cold-formed welded/seamless structural tubing — rectangular",
+    "typical_use": "HSS rectangular/square shapes, HSS columns and bracing",
+    "Fy_ksi": 50,
+    "Fu_ksi": 62,
+    "elongation_pct": 21,
+    "weldability": "Good — may need preheat for thick walls (≥1/2\")",
+    "notes": "Standard grade for rectangular/square HSS. Higher Fy than Gr. B."
+  },
+  {
+    "grade": "A36",
+    "description": "Carbon structural steel",
+    "typical_use": "Angles, channels, plates, miscellaneous shapes",
+    "Fy_ksi": 36,
+    "Fu_ksi": 58,
+    "elongation_pct": 20,
+    "weldability": "Excellent — easiest steel to weld",
+    "notes": "Legacy standard. Still used for angles, channels, and plates. Dual-certified with A992 for many W-shapes."
+  },
+  {
+    "grade": "A572 Gr. 50",
+    "description": "High-strength low-alloy structural steel",
+    "typical_use": "Plates, built-up sections, heavy columns",
+    "Fy_ksi": 50,
+    "Fu_ksi": 65,
+    "elongation_pct": 18,
+    "weldability": "Good — preheat may be required for thick plates",
+    "notes": "Used for plates and built-up members. Same Fy as A992."
+  },
+  {
+    "grade": "A572 Gr. 42",
+    "description": "High-strength low-alloy structural steel — Grade 42",
+    "typical_use": "Lighter plates, structural shapes",
+    "Fy_ksi": 42,
+    "Fu_ksi": 60,
+    "elongation_pct": 20,
+    "weldability": "Good",
+    "notes": "Less common than Gr. 50. Check availability."
+  },
+  {
+    "grade": "A913 Gr. 50",
+    "description": "HSLA quenched and self-tempered shapes",
+    "typical_use": "Jumbo W-shapes (Group 4 and 5), heavy columns",
+    "Fy_ksi": 50,
+    "Fu_ksi": 65,
+    "elongation_pct": 21,
+    "weldability": "Excellent — superior to A992 for thick sections, no preheat needed",
+    "notes": "Premium grade for heavy sections. Better CVN toughness. Typically 5-10% cost premium."
+  },
+  {
+    "grade": "A913 Gr. 65",
+    "description": "HSLA quenched and self-tempered shapes — Grade 65",
+    "typical_use": "Heavy columns, high-rise applications",
+    "Fy_ksi": 65,
+    "Fu_ksi": 80,
+    "elongation_pct": 17,
+    "weldability": "Good — follow AWS D1.1 for thick sections",
+    "notes": "High-strength grade for reducing column sizes. Verify availability and lead time."
+  },
+  {
+    "grade": "A514",
+    "description": "High-yield-strength quenched and tempered alloy steel plates",
+    "typical_use": "Base plates, heavy gusset plates, built-up columns",
+    "Fy_ksi": 100,
+    "Fu_ksi": 115,
+    "elongation_pct": 16,
+    "weldability": "Requires special procedures — preheat, low-hydrogen electrodes, controlled heat input",
+    "notes": "Very high strength but difficult to weld. Use only when specified by engineer."
+  },
+  {
+    "grade": "A588 / A242",
+    "description": "Weathering steel — atmospheric corrosion resistant",
+    "typical_use": "Exposed structural steel, bridges, exterior applications",
+    "Fy_ksi": 50,
+    "Fu_ksi": 70,
+    "elongation_pct": 18,
+    "weldability": "Good — use matching weathering filler metals",
+    "notes": "Forms protective patina, no painting required. Not suitable for submerged or constantly wet conditions. Also known as COR-TEN."
+  },
+  {
+    "grade": "A53 Gr. B",
+    "description": "Pipe — welded and seamless",
+    "typical_use": "Standard weight, extra-strong, and double extra-strong pipe",
+    "Fy_ksi": 35,
+    "Fu_ksi": 60,
+    "elongation_pct": 22,
+    "weldability": "Excellent",
+    "notes": "Standard pipe grade. Available in STD, XS (extra strong), and XXS (double extra strong) wall thicknesses."
+  },
+  {
+    "grade": "A325",
+    "description": "High-strength bolts for structural joints",
+    "typical_use": "Standard structural bolts — 3/4\", 7/8\", 1\" diameter",
+    "Fy_ksi": 92,
+    "Fu_ksi": 120,
+    "elongation_pct": 14,
+    "weldability": "N/A — bolts not welded",
+    "notes": "Most common structural bolt. Superseded by ASTM F3125 Gr. A325 but still commonly referenced. Available as bearing (N/X) or slip-critical (SC)."
+  },
+  {
+    "grade": "A490",
+    "description": "High-strength bolts — heat treated",
+    "typical_use": "Heavy connections, moment frames, high-load joints",
+    "Fy_ksi": 130,
+    "Fu_ksi": 150,
+    "elongation_pct": 14,
+    "weldability": "N/A — bolts not welded, never galvanized",
+    "notes": "Higher capacity than A325. Cannot be galvanized. Superseded by ASTM F3125 Gr. A490."
+  },
+  {
+    "grade": "F1852",
+    "description": "Twist-off type tension control bolt (TC bolt) — A325 equivalent",
+    "typical_use": "Field connections — easier installation verification than A325",
+    "Fy_ksi": 92,
+    "Fu_ksi": 120,
+    "elongation_pct": 14,
+    "weldability": "N/A",
+    "notes": "TC bolts have a splined end that shears off at proper pretension. Same capacity as A325. Commonly used for slip-critical connections."
+  },
+  {
+    "grade": "E70XX",
+    "description": "Weld electrode/filler metal — 70 ksi tensile",
+    "typical_use": "Fillet welds, CJP welds, PJP welds on A36/A992/A572 steel",
+    "Fy_ksi": 58,
+    "Fu_ksi": 70,
+    "elongation_pct": 22,
+    "weldability": "N/A — this IS the filler metal",
+    "notes": "Standard electrode classification. FEXX = 70 ksi. Matches A992 and lower steels. Common designations: E7018 (SMAW), ER70S-6 (GMAW), E71T-1 (FCAW)."
+  }
+]

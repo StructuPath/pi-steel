@@ -1,0 +1,37 @@
+{
+  "name": "@structupath/pi-steel",
+  "version": "0.1.0",
+  "description": "Structural steel estimating skills for the Pi coding agent — AISC takeoffs, bills of material, tonnage calcs, and vendor RFQ generation.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "steel",
+    "structural-steel",
+    "estimating",
+    "takeoff",
+    "aisc",
+    "bom",
+    "rfq",
+    "construction",
+    "fabrication"
+  ],
+  "author": "StructuPath (https://structupath.ai)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/StructuPath/pi-steel.git"
+  },
+  "homepage": "https://structupath.ai",
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "pi": {
+    "skills": ["./skills"]
+  },
+  "files": [
+    "skills",
+    "README.md",
+    "LICENSE"
+  ]
+}
