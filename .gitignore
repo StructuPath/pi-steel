@@ -3,3 +3,5 @@ node_modules/
 .DS_Store
 outputs/
 .a5c/
+__pycache__/
+*.pyc
