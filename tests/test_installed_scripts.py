@@ -30,6 +30,8 @@ def test_packed_npm_artifact_contains_runtime_and_runs_doctor(tmp_path):
         "package/skills/_shared/pi_steel/__init__.py",
         "package/skills/_shared/pi_steel/run_manifest.py",
         "package/skills/_shared/schemas/run-manifest.schema.json",
+        "package/skills/steel-rfq/scripts/generate-rfq.py",
+        "package/skills/steel-rfq/references/rfq-input.md",
         "package/pyproject.toml",
         "package/requirements.txt",
         "package/requirements-tested.txt",

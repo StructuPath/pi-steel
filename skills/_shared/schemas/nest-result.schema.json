@@ -358,10 +358,18 @@
     },
     "rfqHandoff": {
       "type": "object",
-      "required": ["schema_version", "source_nest_result_version", "rows"],
+      "required": [
+        "schema_version",
+        "source_nest_result_version",
+        "geometry_readiness",
+        "rows"
+      ],
       "properties": {
         "schema_version": { "const": "1.0.0" },
         "source_nest_result_version": { "const": "1.0.0" },
+        "geometry_readiness": {
+          "enum": ["geometry_verified", "reference_only", "diagnostic"]
+        },
         "rows": { "type": "array", "items": { "type": "object" } }
       },
       "additionalProperties": false

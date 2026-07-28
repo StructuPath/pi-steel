@@ -52,6 +52,14 @@ def libreoffice_bake(path):
     return False
 
 
+def recalculate(path, *, bake=True):
+    """Set recalc-on-open and return an honest cache status."""
+    flag_recalc_on_load(path)
+    if bake and libreoffice_bake(path):
+        return "baked_via_libreoffice"
+    return "deferred_recalculate_on_open"
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit("usage: python3 recalc.py <workbook.xlsx>")
@@ -61,9 +69,8 @@ def main():
     # Set recalc-on-open FIRST so LibreOffice honors it, then bake. Do NOT
     # reload with openpyxl afterward — that would strip the cached values
     # LibreOffice just computed.
-    flag_recalc_on_load(path)
-    baked = libreoffice_bake(path)
-    if baked:
+    status = recalculate(path)
+    if status == "baked_via_libreoffice":
         print(f"recalc: values computed and baked via LibreOffice — {path}")
     else:
         print(f"recalc: recalc-on-open set (open in Excel to compute values) — {path}")

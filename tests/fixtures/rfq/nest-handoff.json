@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0.0",
+  "source_nest_result_version": "1.0.0",
+  "geometry_readiness": "reference_only",
+  "rows": [
+    {
+      "stock_id": "SYNTHETIC-STOCK-A36-0500",
+      "stock_name": "Synthetic Plate",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "thickness": 0.5,
+      "sheets_needed": 1,
+      "sheet_size": "48x24",
+      "packing_utilization_pct": 42.5,
+      "nesting_plan": "1 x 48x24 sheet(s) - 42.5% packing utilization, 4 parts",
+      "drop_notes": "Remnant candidates (not certified reusable): 20x10 in",
+      "remnant_candidates": [
+        {
+          "width": 20,
+          "height": 10,
+          "area": 200,
+          "status": "candidate_unverified"
+        }
+      ],
+      "total_cost": null,
+      "geometry_readiness": "reference_only"
+    },
+    {
+      "stock_id": "SYNTHETIC-STOCK-A572-0375",
+      "stock_name": "Synthetic Plate",
+      "material": "carbon_steel",
+      "grade": "A572",
+      "thickness": 0.375,
+      "sheets_needed": 1,
+      "sheet_size": "60x30",
+      "packing_utilization_pct": 55,
+      "nesting_plan": "1 x 60x30 sheet(s) - 55% packing utilization, 3 parts",
+      "drop_notes": "Remnant candidates (not certified reusable): 18x8 in",
+      "remnant_candidates": [
+        {
+          "width": 18,
+          "height": 8,
+          "area": 144,
+          "status": "candidate_unverified"
+        }
+      ],
+      "total_cost": null,
+      "geometry_readiness": "geometry_verified"
+    }
+  ]
+}

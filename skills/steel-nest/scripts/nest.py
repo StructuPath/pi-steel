@@ -1121,10 +1121,12 @@ def rfq_nesting_block(res):
             ),
             "remnant_candidates": candidates,
             "total_cost": round(cost, 2) if costs_known and not res["unplaced"] else None,
+            "geometry_readiness": res["geometry_readiness"],
         })
     return {
         "schema_version": "1.0.0",
         "source_nest_result_version": NEST_RESULT_VERSION,
+        "geometry_readiness": res["geometry_readiness"],
         "rows": blocks,
     }
 

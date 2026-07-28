@@ -106,6 +106,7 @@ def test_material_groups_and_same_name_stock_variants_remain_distinct():
     }
     assert len({plate["stock_id"] for plate in result["plate_reports"]}) == 2
     assert len(result["rfq_nesting"]["rows"]) == 2
+    assert result["rfq_nesting"]["geometry_readiness"] == "geometry_verified"
 
     reordered = deepcopy(job)
     reordered["parts"].reverse()
@@ -194,4 +195,5 @@ def test_packing_and_net_yield_are_separate_and_labeled():
     assert metrics["net_material_yield_pct"]["value"] < 6.0
     assert metrics["packing_utilization_pct"]["approximation"] == "bounding_box"
     assert metrics["net_material_yield_pct"]["approximation"] == "declared_area"
+    assert result["rfq_nesting"]["geometry_readiness"] == "reference_only"
     assert "overall_yield_pct" not in result

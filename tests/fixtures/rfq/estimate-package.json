@@ -1,0 +1,134 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "project_id": "SYNTHETIC-RFQ-001",
+    "name": "Synthetic RFQ Project",
+    "revision": {
+      "revision_id": "SYNTHETIC-REV-A",
+      "source_document": "SYNTHETIC-ESTIMATE"
+    }
+  },
+  "unit_system": "imperial",
+  "items": [
+    {
+      "intent": "fabricated_part",
+      "source_id": "SYNTHETIC-SRC-W1",
+      "item_id": "item:synthetic-w1",
+      "quantity": 2,
+      "mark": "W1",
+      "description": "Member whose description says BY OTHERS but remains typed fabricated scope",
+      "material": "carbon_steel",
+      "grade": "A992",
+      "designation": "W12X26",
+      "length_ft": 12,
+      "unit_weight_plf": 26,
+      "total_weight_lbs": 624,
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-DRAWING",
+          "locator": "SYNTHETIC-DETAIL-W1"
+        }
+      ]
+    },
+    {
+      "intent": "fabricated_part",
+      "source_id": "SYNTHETIC-SRC-P1",
+      "item_id": "item:synthetic-p1",
+      "quantity": 4,
+      "mark": "P1",
+      "description": "Synthetic connection plate",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "geometry": {
+        "shape": "rect",
+        "width": 8,
+        "height": 6,
+        "thickness": 0.5,
+        "holes": []
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-DRAWING",
+          "locator": "SYNTHETIC-DETAIL-P1"
+        }
+      ]
+    },
+    {
+      "intent": "purchased_stock",
+      "source_id": "SYNTHETIC-SRC-SHEET1",
+      "item_id": "item:synthetic-sheet1",
+      "quantity": 1,
+      "mark": "S1",
+      "description": "Synthetic full sheet purchase",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "specification": "PLATE",
+      "dimensions": {
+        "category": "PLATE STOCK",
+        "width": 48,
+        "height": 24,
+        "thickness": 0.5,
+        "size": "48 x 24 x 0.5",
+        "purchase_weight_lbs": 163,
+        "replaces_item_ids": ["item:synthetic-p1"]
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-ESTIMATE",
+          "locator": "SYNTHETIC-STOCK-ROW-1"
+        }
+      ]
+    },
+    {
+      "intent": "hardware",
+      "source_id": "SYNTHETIC-SRC-H1",
+      "item_id": "item:synthetic-h1",
+      "quantity": 8,
+      "mark": "H1",
+      "description": "Synthetic bolt assembly",
+      "material": "steel",
+      "grade": "A325",
+      "specification": "3/4 in bolt",
+      "dimensions": {
+        "category": "HARDWARE",
+        "size": "3/4 in",
+        "purchase_weight_lbs": 12
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-ESTIMATE",
+          "locator": "SYNTHETIC-HARDWARE-ROW-1"
+        }
+      ]
+    },
+    {
+      "intent": "by_others",
+      "source_id": "SYNTHETIC-SRC-BO1",
+      "item_id": "item:synthetic-bo1",
+      "quantity": 1,
+      "description": "Synthetic excluded scope",
+      "reason": "Explicitly typed by others",
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-ESTIMATE",
+          "locator": "SYNTHETIC-SCOPE-ROW-1"
+        }
+      ]
+    }
+  ],
+  "stock": [],
+  "commercial_basis": {
+    "currency": "USD",
+    "costs": []
+  },
+  "review": {
+    "status": "validated",
+    "findings": [],
+    "acknowledgements": []
+  },
+  "lineage": {
+    "source_type": "synthetic_test",
+    "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "configuration_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

@@ -1,7 +1,13 @@
 {
   "company_name": "Example Fabricator",
   "city_state": "Example City, ST",
-  "payment_terms": "ENTER APPROVED PAYMENT TERMS",
-  "quote_validity_days": null,
-  "logo": null
+  "logo": null,
+  "terms_template": {
+    "template_id": "EXAMPLE-TERMS-UNAPPROVED",
+    "content": "ENTER SYNTHETICALLY APPROVED TERMS TEMPLATE",
+    "content_hash": "607418ebf6466ee2f5f45b7ea63603baba276b5f95860cd8a079dfa1d652fe6b",
+    "approver": "ENTER APPROVER",
+    "approval_date": null,
+    "status": "draft"
+  }
 }
