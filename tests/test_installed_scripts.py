@@ -40,7 +40,9 @@ def test_packed_npm_artifact_contains_runtime_and_runs_doctor(tmp_path):
         "package/requirements.txt",
         "package/requirements-tested.txt",
         "package/requirements-dev.txt",
+        "package/requirements-render.txt",
         "package/DATA_PROVENANCE.md",
+        "package/DATA_PROVENANCE.json",
     }
     assert expected <= members
     assert not any(name.startswith("package/tests/") for name in members)
@@ -60,6 +62,19 @@ def test_packed_npm_artifact_contains_runtime_and_runs_doctor(tmp_path):
 
     assert doctor.returncode == 0, doctor.stdout + doctor.stderr
     assert json.loads(doctor.stdout)["run_outcome"] == "ready"
+
+    provenance = subprocess.run(
+        [
+            sys.executable,
+            installed_root / "scripts" / "check-data-provenance.py",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert provenance.returncode == 0, provenance.stdout + provenance.stderr
+    assert json.loads(provenance.stdout)["release_readiness"] == "blocked"
 
     environment["PI_STEEL_CONFIG"] = str(
         ROOT / "tests" / "fixtures" / "pipeline" / "synthetic-profile.json"

@@ -50,7 +50,9 @@ Requires `ezdxf`, `matplotlib`, `numpy` (`pip install ezdxf matplotlib numpy`).
 
 Turns a steel estimate/takeoff spreadsheet into a standardized vendor RFQ (.xlsx): materials grouped the way vendors stock them (W-shapes / plate / flat bar), yellow fill-in pricing columns, nesting/drop reference, and terms & conditions — branded with **your** company profile. When `steel-nest` has run for the job, its cutting plan flows straight into the RFQ's nesting table.
 
-The three skills chain into a full estimating pipeline: **takeoff → nest → RFQ**.
+The `steel-estimate` orchestrator chains the skills into a review-gated estimating
+pipeline: **takeoff → nest → draft RFQ**. It publishes immutable run directories,
+QA findings, lineage, and readiness labels; blocked runs never contain a workbook.
 
 One-time setup: copy `skills/steel-rfq/assets/company-profile.example.json` to the
 ignored path `.pi-steel/company-profile.json` in your project and enter approved
@@ -61,7 +63,7 @@ Keep company profiles, customer files, vendor information, live pricing, and gen
 artifacts outside this repository. Public examples are synthetic and must follow
 [`PUBLIC_DATA_POLICY.md`](PUBLIC_DATA_POLICY.md).
 
-> "Send this takeoff out for pricing"
+> "Prepare a draft RFQ from this takeoff"
 > "Generate an RFQ from this estimate"
 
 ## Requirements
@@ -69,9 +71,28 @@ artifacts outside this repository. Public examples are synthetic and must follow
 - `jq` and `python3` (with `pandas` + `openpyxl` for RFQ generation)
 - macOS or Linux
 
+## Development and release checks
+
+```bash
+npm test                 # base, no-render suite
+npm run test:full        # optional PDF/PNG/DXF/LibreOffice smoke tests
+npm run privacy:check    # public-repository data guard
+npm run pack:check       # npm contents plus unpacked-runtime smoke test
+npm run provenance:check # shape-data integrity and recorded decision
+npm run release:check    # complete release gate
+```
+
+`release:check` is intentionally blocked while redistribution permission for the
+checked-in transformed AISC shape dataset remains unverified. See
+[`DATA_PROVENANCE.md`](DATA_PROVENANCE.md). Do not publish a new package release
+by bypassing that gate.
+
 ## License
 
-MIT. AISC shape data derived from the publicly available AISC Shapes Database v16.0.
+StructuPath-authored code and documentation are MIT licensed. That license does
+not grant rights in third-party data. The checked-in AISC-derived shape data has
+a separate, currently blocked redistribution decision documented in
+[`DATA_PROVENANCE.md`](DATA_PROVENANCE.md).
 
 ---
 

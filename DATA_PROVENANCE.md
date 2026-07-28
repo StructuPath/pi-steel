@@ -5,6 +5,10 @@ shipped by pi-steel. The repository's MIT license covers StructuPath-authored
 code and documentation; it must not be interpreted as granting rights in
 third-party data.
 
+[`DATA_PROVENANCE.json`](DATA_PROVENANCE.json) is the machine-readable release
+record checked against the shipped bytes. This document provides the supporting
+human-readable evidence and decision rationale.
+
 ## AISC shapes database
 
 | Field | Recorded value |
