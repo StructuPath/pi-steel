@@ -18,11 +18,15 @@ SPEC.loader.exec_module(nest)
 def job_with(part, *, stock_qty=1):
     return {
         "job_name": "SYNTHETIC-BURN-GUARD",
+        "material": "carbon_steel",
+        "grade": "A36",
+        "unit_system": "imperial",
         "settings": {
             "kerf_in": 0.06,
             "part_gap_in": 0.25,
             "edge_margin_in": 0.5,
             "density_lb_in3": 0.2836,
+            "thickness_in": 0.5,
         },
         "stock": [
             {

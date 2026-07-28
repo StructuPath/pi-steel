@@ -5,7 +5,7 @@
   "grade": "A36",
   "unit_system": "imperial",
 
-  "_comment_settings": "Cut/gap in inches. kerf = torch cut width (plasma ~0.06, oxy ~0.1, laser ~0.02). part_gap = clearance between parts on top of kerf. edge_margin = keep-out from plate edge (clamp/grip zone). density lb/in^3: A36 steel = 0.2836, aluminum = 0.098, stainless 304 = 0.289.",
+  "_comment_settings": "Cut/gap in inches. kerf + part_gap is the minimum edge-to-edge clearance between parts. edge_margin alone is the plate-edge keep-out; no trailing kerf/gap is required at that boundary. density lb/in^3 must match the explicit material basis.",
   "settings": {
     "kerf_in": 0.06,
     "part_gap_in": 0.25,
@@ -14,7 +14,7 @@
     "density_lb_in3": 0.2836
   },
 
-  "_comment_stock": "One entry per plate size you have on hand. qty = how many sheets available (or set \"unlimited\": true to buy as many as needed). Add either cost_per_lb or cost_per_sheet only from an approved project input; public templates intentionally contain no pricing.",
+  "_comment_stock": "One entry per distinct plate size/material/grade/thickness. qty = finite sheets available or set unlimited=true. Add either cost_per_lb or cost_per_sheet from an approved project input, never both; public templates intentionally contain no pricing.",
   "stock": [
     {
       "name": "A36 Plate 1/2\"",

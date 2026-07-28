@@ -21,11 +21,15 @@ SPEC.loader.exec_module(nest)
 def rectangular_job():
     return {
         "job_name": "SYNTHETIC-DXF-CHARACTERIZATION",
+        "material": "carbon_steel",
+        "grade": "A36",
+        "unit_system": "imperial",
         "settings": {
             "kerf_in": 0.06,
             "part_gap_in": 0.25,
             "edge_margin_in": 0.5,
             "density_lb_in3": 0.2836,
+            "thickness_in": 0.5,
         },
         "stock": [
             {
@@ -240,7 +244,8 @@ def test_invalid_hole_is_blocked_with_only_safe_reference_and_diagnostics(tmp_pa
     assert completed.returncode == 3, completed.stdout + completed.stderr
     run_path = latest_run(output_root)
     assert not list(run_path.glob("burn_plate_*.dxf"))
-    assert (run_path / "reference_nest.dxf").exists()
+    assert not (run_path / "reference_nest.dxf").exists()
+    assert (run_path / "qa-report.json").exists()
     manifest = load_json(run_path / "run-manifest.json")
     assert manifest["run_outcome"] == "blocked"
     assert "geometry_verified" not in {

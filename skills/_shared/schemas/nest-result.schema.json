@@ -5,24 +5,41 @@
   "type": "object",
   "required": [
     "schema_version",
+    "algorithm_version",
+    "normalized_input_hash",
     "estimate_input_hash",
     "configuration_hash",
     "outcome",
     "package_status",
+    "meta",
+    "clearance_contract",
     "groups",
-    "unplaced"
+    "metrics",
+    "cost",
+    "plate_reports",
+    "unplaced",
+    "verification",
+    "validation_findings",
+    "geometry_readiness",
+    "burn_dxf_eligible",
+    "burn_dxf_warnings"
   ],
   "properties": {
     "schema_version": { "const": "1.0.0" },
-    "estimate_input_hash": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
-    },
-    "configuration_hash": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
-    },
+    "algorithm_version": { "type": "string", "minLength": 1 },
+    "normalized_input_hash": { "$ref": "#/$defs/hash" },
+    "estimate_input_hash": { "$ref": "#/$defs/hash" },
+    "configuration_hash": { "$ref": "#/$defs/hash" },
     "outcome": {
+      "enum": [
+        "ready",
+        "review_required",
+        "blocked",
+        "dependency_missing",
+        "usage_or_internal_error"
+      ]
+    },
+    "run_outcome": {
       "enum": [
         "ready",
         "review_required",
@@ -42,6 +59,42 @@
         "rfq_ready_for_review"
       ]
     },
+    "meta": {
+      "type": "object",
+      "required": [
+        "job_name",
+        "customer",
+        "kerf_in",
+        "part_gap_in",
+        "edge_margin_in",
+        "density_lb_in3",
+        "unit_system"
+      ],
+      "properties": {
+        "job_name": { "type": "string" },
+        "customer": { "type": "string" },
+        "kerf_in": { "type": "number", "minimum": 0 },
+        "part_gap_in": { "type": "number", "minimum": 0 },
+        "edge_margin_in": { "type": "number", "minimum": 0 },
+        "density_lb_in3": { "type": "number", "minimum": 0 },
+        "unit_system": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "clearance_contract": {
+      "type": "object",
+      "required": [
+        "edge_margin_ownership",
+        "inter_part_clearance_ownership",
+        "trailing_clearance_required_at_plate_edge"
+      ],
+      "properties": {
+        "edge_margin_ownership": { "const": "plate_to_part" },
+        "inter_part_clearance_ownership": { "const": "kerf_plus_gap" },
+        "trailing_clearance_required_at_plate_edge": { "const": false }
+      },
+      "additionalProperties": false
+    },
     "groups": {
       "type": "array",
       "items": {
@@ -49,42 +102,269 @@
         "required": ["group_id", "material", "grade", "thickness", "placements"],
         "properties": {
           "group_id": { "type": "string", "minLength": 1 },
-          "material": { "type": "string", "minLength": 1 },
-          "grade": { "type": "string", "minLength": 1 },
-          "thickness": { "type": "number", "exclusiveMinimum": 0 },
+          "material": { "type": ["string", "null"] },
+          "grade": { "type": ["string", "null"] },
+          "thickness": { "type": "number" },
           "placements": {
             "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["placement_id", "item_id", "instance_id", "stock_id"],
-              "properties": {
-                "placement_id": { "type": "string", "minLength": 1 },
-                "item_id": { "type": "string", "minLength": 1 },
-                "instance_id": { "type": "string", "minLength": 1 },
-                "stock_id": { "type": "string", "minLength": 1 },
-                "x": { "type": "number" },
-                "y": { "type": "number" },
-                "rotated": { "type": "boolean" }
-              },
-              "additionalProperties": false
-            }
+            "items": { "$ref": "#/$defs/placement" }
           }
         },
         "additionalProperties": false
       }
     },
+    "plates_used": { "type": "integer", "minimum": 0 },
+    "metrics": {
+      "type": "object",
+      "required": ["packing_utilization_pct", "net_material_yield_pct"],
+      "properties": {
+        "packing_utilization_pct": { "$ref": "#/$defs/metric" },
+        "net_material_yield_pct": { "$ref": "#/$defs/metric" }
+      },
+      "additionalProperties": false
+    },
+    "total_plate_weight_lb": { "type": "number" },
+    "total_part_weight_lb": { "type": "number" },
+    "total_scrap_weight_lb": { "type": "number" },
+    "cost": {
+      "type": "object",
+      "required": ["status", "total"],
+      "properties": {
+        "status": {
+          "enum": ["known", "not_provided", "incomplete_unplaced"]
+        },
+        "total": { "type": ["number", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "total_material_cost": { "type": ["number", "null"] },
+    "cost_known": { "type": "boolean" },
+    "total_holes": { "type": "integer", "minimum": 0 },
+    "part_net_cost": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "plate_reports": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plateReport" }
+    },
     "unplaced": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["instance_id", "reason"],
+        "required": ["item_id", "label", "quantity", "size", "reason"],
         "properties": {
-          "instance_id": { "type": "string", "minLength": 1 },
-          "reason": { "type": "string", "minLength": 1 }
+          "item_id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "size": { "type": "string" },
+          "reason": {
+            "enum": ["no_compatible_stock_fit", "stock_exhausted"]
+          }
         },
         "additionalProperties": false
       }
-    }
+    },
+    "has_irregular": { "type": "boolean" },
+    "invalid_hole_warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "validation_findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["status", "findings"],
+      "properties": {
+        "status": { "enum": ["verified", "failed"] },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "path", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "path": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "geometry_readiness": {
+      "enum": ["geometry_verified", "reference_only", "diagnostic"]
+    },
+    "burn_dxf_eligible": { "type": "boolean" },
+    "burn_dxf_warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "rfq_nesting": { "$ref": "#/$defs/rfqHandoff" }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "metric": {
+      "type": "object",
+      "required": ["value", "approximation"],
+      "properties": {
+        "value": { "type": "number", "minimum": 0, "maximum": 100 },
+        "approximation": {
+          "enum": ["exact", "bounding_box", "declared_area", "bounding_box_estimate"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "placement": {
+      "type": "object",
+      "required": [
+        "part_id",
+        "source_id",
+        "item_id",
+        "instance_id",
+        "placement_id",
+        "stock_id",
+        "label",
+        "x",
+        "y",
+        "w",
+        "h",
+        "rotated",
+        "shape",
+        "ow",
+        "oh",
+        "holes",
+        "base_area",
+        "holes_area",
+        "material",
+        "grade",
+        "thickness"
+      ],
+      "properties": {
+        "part_id": { "type": "string" },
+        "source_id": { "type": "string" },
+        "item_id": { "type": "string" },
+        "instance_id": { "type": "string" },
+        "placement_id": { "type": "string" },
+        "stock_id": { "type": "string" },
+        "label": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number", "exclusiveMinimum": 0 },
+        "h": { "type": "number", "exclusiveMinimum": 0 },
+        "rotated": { "type": "boolean" },
+        "shape": { "enum": ["rect", "irregular"] },
+        "ow": { "type": "number", "exclusiveMinimum": 0 },
+        "oh": { "type": "number", "exclusiveMinimum": 0 },
+        "holes": { "type": "array", "items": { "type": "object" } },
+        "base_area": { "type": "number" },
+        "holes_area": { "type": "number" },
+        "material": { "type": "string" },
+        "grade": { "type": "string" },
+        "thickness": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "remnantCandidate": {
+      "type": "object",
+      "required": ["width", "height", "area", "status"],
+      "properties": {
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "area": { "type": "number", "exclusiveMinimum": 0 },
+        "status": { "const": "candidate_unverified" }
+      },
+      "additionalProperties": false
+    },
+    "plateReport": {
+      "type": "object",
+      "required": [
+        "index",
+        "stock",
+        "stock_id",
+        "material",
+        "grade",
+        "size",
+        "W",
+        "H",
+        "thickness",
+        "parts",
+        "num_parts",
+        "num_holes",
+        "packing_utilization_pct",
+        "net_material_yield_pct",
+        "plate_weight_lb",
+        "part_weight_lb",
+        "scrap_weight_lb",
+        "plate_cost",
+        "cost_basis",
+        "remnant_candidates",
+        "placements"
+      ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 1 },
+        "stock": { "type": "string" },
+        "stock_id": { "type": "string" },
+        "material": { "type": "string" },
+        "grade": { "type": "string" },
+        "size": { "type": "string" },
+        "W": { "type": "number", "exclusiveMinimum": 0 },
+        "H": { "type": "number", "exclusiveMinimum": 0 },
+        "thickness": { "type": "number", "exclusiveMinimum": 0 },
+        "parts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "num_parts": { "type": "integer", "minimum": 1 },
+        "num_holes": { "type": "integer", "minimum": 0 },
+        "packing_utilization_pct": { "$ref": "#/$defs/metric" },
+        "net_material_yield_pct": { "$ref": "#/$defs/metric" },
+        "plate_weight_lb": { "type": "number" },
+        "part_weight_lb": { "type": "number" },
+        "scrap_weight_lb": { "type": "number" },
+        "plate_cost": { "type": ["number", "null"] },
+        "cost_basis": {
+          "type": ["string", "null"],
+          "enum": ["per_sheet", "per_pound", null]
+        },
+        "remnant_candidates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/remnantCandidate" }
+        },
+        "placements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/placement" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "finding": {
+      "type": "object",
+      "required": ["code", "severity", "path", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "severity": { "enum": ["error", "warning"] },
+        "path": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "rfqHandoff": {
+      "type": "object",
+      "required": ["schema_version", "source_nest_result_version", "rows"],
+      "properties": {
+        "schema_version": { "const": "1.0.0" },
+        "source_nest_result_version": { "const": "1.0.0" },
+        "rows": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    }
+  }
 }

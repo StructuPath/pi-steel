@@ -1,0 +1,57 @@
+{
+  "job_name": "SYNTHETIC-GROUPED-NEST",
+  "customer": "Example Customer",
+  "unit_system": "imperial",
+  "settings": {
+    "kerf_in": 0.05,
+    "part_gap_in": 0.2,
+    "edge_margin_in": 0.5,
+    "density_lb_in3": 0.2836
+  },
+  "stock": [
+    {
+      "stock_id": "SYNTHETIC-STOCK-A36-0500",
+      "name": "Synthetic Plate",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "width": 24,
+      "height": 12,
+      "thickness": 0.5,
+      "qty": 1
+    },
+    {
+      "stock_id": "SYNTHETIC-STOCK-A572-0375",
+      "name": "Synthetic Plate",
+      "material": "carbon_steel",
+      "grade": "A572",
+      "width": 24,
+      "height": 12,
+      "thickness": 0.375,
+      "unlimited": true
+    }
+  ],
+  "parts": [
+    {
+      "source_id": "SYNTHETIC-SRC-A36",
+      "name": "SYNTHETIC-A36-PART",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "thickness": 0.5,
+      "width": 8,
+      "height": 4,
+      "qty": 2,
+      "shape": "rect"
+    },
+    {
+      "source_id": "SYNTHETIC-SRC-A572",
+      "name": "SYNTHETIC-A572-PART",
+      "material": "carbon_steel",
+      "grade": "A572",
+      "thickness": 0.375,
+      "width": 7,
+      "height": 5,
+      "qty": 3,
+      "shape": "rect"
+    }
+  ]
+}

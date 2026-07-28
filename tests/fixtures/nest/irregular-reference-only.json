@@ -1,11 +1,15 @@
 {
   "job_name": "SYNTHETIC-IRREGULAR-REFERENCE",
   "customer": "Example Customer",
+  "material": "carbon_steel",
+  "grade": "A36",
+  "unit_system": "imperial",
   "settings": {
     "kerf_in": 0.06,
     "part_gap_in": 0.25,
     "edge_margin_in": 0.5,
-    "density_lb_in3": 0.2836
+    "density_lb_in3": 0.2836,
+    "thickness_in": 0.5
   },
   "stock": [
     {
