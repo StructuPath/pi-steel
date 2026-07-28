@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════
-# AISC Member Lookup
+# StructuPath Member Lookup
 # Usage: ./scripts/lookup-member.sh "W14X30"
 #        ./scripts/lookup-member.sh "HSS8X6X1/2"
 #        ./scripts/lookup-member.sh "L4X4X3/8"
 #        ./scripts/lookup-member.sh "C10X20"
 #        ./scripts/lookup-member.sh "PIPE6STD"
 #
-# Searches the AISC shapes database and returns all properties.
+# Searches the bundled StructuPath shapes database and returns all properties.
 # Designation is case-insensitive, spaces are stripped.
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail

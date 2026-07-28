@@ -13,14 +13,14 @@ compatibility: Requires jq and python3. macOS or Linux.
 metadata:
   domain: structural-steel
   version: "1.0.0"
-  aisc-edition: "16th"
-  shapes-count: "400+"
+  dataset: "StructuPath Structural Shapes Database"
+  shapes-count: "477"
 allowed-tools: Bash Read Edit Write
 ---
 
 # Steel Takeoff Skill
 
-Structural steel quantity takeoff and AISC member data lookup using the 16th Edition shapes database.
+Structural steel quantity takeoff and member data lookup using StructuPath's 477-shape database.
 
 ## Setup (run once per machine)
 
@@ -31,9 +31,9 @@ python3 -c "import json, csv, sys" || echo "ERROR: python3 required"
 command -v jq >/dev/null || echo "ERROR: install jq (brew install jq / apt install jq)"
 ```
 
-## Quick Reference: AISC Member Lookup
+## Quick Reference: Structural Member Lookup
 
-Look up any AISC shape's full property set:
+Look up any supported shape's full property set:
 
 ```bash
 # Single member lookup — returns all properties
@@ -77,7 +77,7 @@ Total_Wt_lbs, Connections, Notes, Source_Sheet, Source_Detail, Intent.
 Use stable synthetic or source-system IDs; do not invent drawing evidence.
 
 ### Step 3 — Look Up Unit Weights
-For every member size in the BOM, look up the unit weight from the AISC database:
+For every member size in the BOM, look up the unit weight from the bundled StructuPath database:
 
 ```bash
 ./scripts/lookup-member.sh "W14X30"
