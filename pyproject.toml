@@ -4,17 +4,15 @@ version = "0.2.2"
 description = "Python runtime dependencies and test configuration for pi-steel"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+  "ezdxf>=1.3,<2",
   "jsonschema>=4.23,<5",
+  "matplotlib>=3.9,<4",
+  "numpy>=2.1,<3",
   "openpyxl>=3.1,<4",
   "pandas>=2.2,<3",
 ]
 
 [project.optional-dependencies]
-render = [
-  "ezdxf>=1.3,<2",
-  "matplotlib>=3.9,<4",
-  "numpy>=2.1,<3",
-]
 test = [
   "pytest>=8.3,<10",
 ]
@@ -23,7 +21,7 @@ test = [
 addopts = "-ra"
 testpaths = ["tests"]
 markers = [
-  "full_render: requires optional rendering dependencies and LibreOffice",
+  "full_render: requires LibreOffice and Poppler system tools",
 ]
 
 [tool.ruff.lint.per-file-ignores]

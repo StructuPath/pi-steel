@@ -150,7 +150,7 @@ def test_ready_package_renders_reference_and_verified_outputs(tmp_path):
     for expected in (
         "DRAFT",
         "Synthetic Pipeline Project",
-        "RFQ",
+        "REQUEST FOR QUOTATION",
         "Response Requested By",
     ):
         assert expected in rendered_text

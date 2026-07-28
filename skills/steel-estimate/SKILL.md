@@ -101,12 +101,12 @@ doctor from the package root:
 python3 scripts/doctor.py --json
 ```
 
-Install the base calculation and workbook dependencies from
-`requirements.txt`. Install `requirements-render.txt` only when PDF, PNG, DXF,
-or LibreOffice-assisted output is needed. `requirements-tested.txt` records the
-exact dependency versions exercised by CI; it is a reproducibility reference,
-not the general installation range. Run the doctor again after installation
-before retrying the estimate.
+Install the calculation, workbook, PNG, and DXF dependencies from
+`requirements.txt`. Full PDF and LibreOffice-assisted checks also require the
+system tools documented by `requirements-render.txt`.
+`requirements-tested.txt` records the exact dependency versions exercised by
+CI; it is a reproducibility reference, not the general installation range. Run
+the doctor again after installation before retrying the estimate.
 
 ## Delivery checks
 
