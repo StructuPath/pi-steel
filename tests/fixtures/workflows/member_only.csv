@@ -1,0 +1,4 @@
+Mark,Qty,Size,Grade,Length_ft,Unit_Wt_plf,Total_Wt_lbs,Connections,Notes
+SYN-M1,2,W14X30,A992,18,30,,,Synthetic member
+SYN-M2,3,W12X26,A992,12.5,26,,,Synthetic member
+SYN-B1,4,HSS6X6X3/8,A500 Gr. C,9,17.27,,,Synthetic brace

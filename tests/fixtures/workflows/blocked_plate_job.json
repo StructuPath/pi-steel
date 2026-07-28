@@ -1,0 +1,28 @@
+{
+  "job_name": "SYNTHETIC-WORKFLOW-BLOCKED-PLATE",
+  "customer": "Example Customer",
+  "settings": {
+    "kerf_in": 0.05,
+    "part_gap_in": 0.2,
+    "edge_margin_in": 0.4,
+    "density_lb_in3": 0.2836
+  },
+  "stock": [
+    {
+      "name": "Synthetic Plate B",
+      "width": 24,
+      "height": 18,
+      "thickness": 0.25,
+      "qty": 1
+    }
+  ],
+  "parts": [
+    {
+      "name": "SYN-OVERSIZE-1",
+      "width": 30,
+      "height": 20,
+      "qty": 1,
+      "shape": "rect"
+    }
+  ]
+}
