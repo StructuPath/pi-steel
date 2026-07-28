@@ -8,13 +8,14 @@ Reliable:
   * Nests parts onto stock plates with a MaxRects bin-packing algorithm
     (rotation, kerf + gap spacing, edge margin, multiple plate sizes,
     greedy multi-plate fill). Rectangular parts nest exactly.
-  * Parts can carry HOLES (round) and rectangular CUTOUTS -- subtracted
-    from weight/cost, rotated with the part, drawn in the layout, and cut
-    as real geometry in the DXF output.
+  * Rectangular parts can carry HOLES (round) and rectangular CUTOUTS --
+    subtracted from weight/cost, rotated with the part, drawn in the layout,
+    and emitted as cut geometry only after the complete job passes its gate.
   * Yield / scrap / largest reusable drop, part weight, material cost.
   * Labeled layout (PNG per plate + combined PDF).
   * DXF outputs:
       - reference_nest.dxf    all plates side-by-side (reference only)
+      - reference_plate_N.dxf one reference-only file per used plate
       - burn_plate_N.dxf      ONE FILE PER SHEET for the burn table when
                               every part is rectangular, every required part
                               fits, and supported holes stay inside the part.
@@ -27,16 +28,45 @@ Deliberately NOT done:
     machine's own CAM/post applies those (that is where they belong).
 
 Usage:
-  python3 nest.py --job job.json --out out/
+  python3 nest.py --job job.json --out published/
+
+The output root receives isolated runs/<run-id>/ directories plus a
+latest-run.json pointer. Exit 0 is ready, 2 requires review, and 3 is blocked.
 """
 
 import argparse
+import importlib.util
 import json
 import math
 import os
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+SHARED_ROOT = Path(__file__).resolve().parents[2] / "_shared"
+if str(SHARED_ROOT) not in sys.path:
+    sys.path.insert(0, str(SHARED_ROOT))
+from bootstrap import bootstrap_shared  # noqa: E402
+
+bootstrap_shared(__file__)
+from pi_steel import (  # noqa: E402
+    RunPublisher,
+    canonical_json_bytes,
+    outcome_exit_code,
+    sha256_bytes,
+)
 
 STEEL_DENSITY = 0.2836  # lb/in^3, A36 mild steel
+NEST_ALGORITHM_VERSION = "maxrects-bssf-u1"
+
+
+class StageArgumentParser(argparse.ArgumentParser):
+    """Use the shared stage contract's exit 1 for command usage errors."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(1, f"{self.prog}: error: {message}\n")
 
 
 # --------------------------------------------------------------------------
@@ -186,20 +216,9 @@ def hole_local(pc, hole):
     return hx, hy
 
 
-def burn_dxf_warnings(job, unplaced):
-    """Return reasons the current job is unsafe for fabrication-style DXF output."""
+def hole_containment_warnings(job):
+    """Return supported-hole geometry failures for the current legacy job."""
     warnings = []
-
-    if any(part.get("shape", "rect") == "irregular" for part in job["parts"]):
-        warnings.append(
-            "Irregular parts use approximate bounding boxes; burn DXFs are suppressed."
-        )
-
-    if unplaced:
-        warnings.append(
-            f"{len(unplaced)} required part(s) did not fit; burn DXFs are suppressed."
-        )
-
     eps = 1e-9
     for part in job["parts"]:
         width = float(part["width"])
@@ -239,6 +258,24 @@ def burn_dxf_warnings(job, unplaced):
                     "outside the part; burn DXFs are suppressed."
                 )
 
+    return warnings
+
+
+def burn_dxf_warnings(job, unplaced):
+    """Return reasons the current job is unsafe for fabrication-style DXF output."""
+    warnings = []
+
+    if any(part.get("shape", "rect") == "irregular" for part in job["parts"]):
+        warnings.append(
+            "Irregular parts use approximate bounding boxes; burn DXFs are suppressed."
+        )
+
+    if unplaced:
+        warnings.append(
+            f"{len(unplaced)} required part(s) did not fit; burn DXFs are suppressed."
+        )
+
+    warnings.extend(hole_containment_warnings(job))
     return warnings
 
 
@@ -409,7 +446,15 @@ def _summarize(job, used_plates, unplaced, density, margin, kerf, gap):
 
     overall_yield = round(100 * tot_part_area_bbox / tot_plate_area, 1) if tot_plate_area else 0.0
 
+    invalid_holes = hole_containment_warnings(job)
     burn_warnings = burn_dxf_warnings(job, unplaced)
+    has_irregular = any(p.get("shape") == "irregular" for p in job["parts"])
+    if unplaced or invalid_holes:
+        geometry_readiness = "diagnostic"
+    elif has_irregular:
+        geometry_readiness = "reference_only"
+    else:
+        geometry_readiness = "geometry_verified"
     res = {
         "meta": {
             "job_name": job.get("job_name", "Nesting job"),
@@ -429,7 +474,9 @@ def _summarize(job, used_plates, unplaced, density, margin, kerf, gap):
         "plate_reports": plate_reports,
         "unplaced": [{"label": u["label"], "size": f'{_fmt(u["w"])} x {_fmt(u["h"])}'}
                      for u in unplaced],
-        "has_irregular": any(p.get("shape") == "irregular" for p in job["parts"]),
+        "has_irregular": has_irregular,
+        "invalid_hole_warnings": invalid_holes,
+        "geometry_readiness": geometry_readiness,
         "burn_dxf_eligible": not burn_warnings,
         "burn_dxf_warnings": burn_warnings,
     }
@@ -605,14 +652,17 @@ def render_layout(res, outdir):
 
 
 # --------------------------------------------------------------------------
-# DXF: overview (all plates) + one burn file per sheet
+# DXF: clearly separated reference and geometry-verified burn files
 # --------------------------------------------------------------------------
 def _draw_part_dxf(msp, pc, x0, y0, profile_layer, holes_layer, notes_layer, label=True):
     import ezdxf
     x, y = x0 + pc["x"], y0 + pc["y"]
     w, h = pc["w"], pc["h"]
-    msp.add_lwpolyline([(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)],
-                       dxfattribs={"layer": profile_layer, "closed": True})
+    msp.add_lwpolyline(
+        [(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
+        close=True,
+        dxfattribs={"layer": profile_layer},
+    )
     for hole in pc.get("holes", []):
         lx, ly = hole_local(pc, hole)
         cx, cy = x + lx, y + ly
@@ -623,39 +673,84 @@ def _draw_part_dxf(msp, pc, x0, y0, profile_layer, holes_layer, notes_layer, lab
             if pc["rotated"]:
                 hw, hh = hh, hw
             msp.add_lwpolyline(
-                [(cx - hw / 2, cy - hh / 2), (cx + hw / 2, cy - hh / 2),
-                 (cx + hw / 2, cy + hh / 2), (cx - hw / 2, cy + hh / 2), (cx - hw / 2, cy - hh / 2)],
-                dxfattribs={"layer": holes_layer, "closed": True})
-    if label:
+                [
+                    (cx - hw / 2, cy - hh / 2),
+                    (cx + hw / 2, cy - hh / 2),
+                    (cx + hw / 2, cy + hh / 2),
+                    (cx - hw / 2, cy + hh / 2),
+                ],
+                close=True,
+                dxfattribs={"layer": holes_layer},
+            )
+    if label and notes_layer:
         msp.add_text(pc["label"], height=min(1.0, max(0.25, min(w, h) * 0.18)),
                      dxfattribs={"layer": notes_layer}).set_placement(
             (x + w / 2, y + h / 2), align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER)
 
 
 def render_dxf_overview(res, outdir):
+    """Write one explicitly reference-only overview with bounding-box outlines."""
     import ezdxf
     margin = res["meta"]["edge_margin_in"]
     doc = ezdxf.new("R2010")
     doc.units = ezdxf.units.IN
     msp = doc.modelspace()
-    for lyr, col in [("PLATE", 5), ("PROFILE", 3), ("HOLES", 1), ("NOTES", 7)]:
+    for lyr, col in [("PLATE", 5), ("BOUNDS", 2), ("HOLES", 1), ("NOTES", 7)]:
         if lyr not in doc.layers:
             doc.layers.add(lyr, color=col)
     x_off = 0.0
     for pr in res["plate_reports"]:
         W, H = pr["W"], pr["H"]
-        msp.add_lwpolyline([(x_off, 0), (x_off + W, 0), (x_off + W, H), (x_off, H), (x_off, 0)],
-                           dxfattribs={"layer": "PLATE", "closed": True})
+        msp.add_lwpolyline(
+            [(x_off, 0), (x_off + W, 0), (x_off + W, H), (x_off, H)],
+            close=True,
+            dxfattribs={"layer": "PLATE"},
+        )
         for pc in pr["placements"]:
-            _draw_part_dxf(msp, pc, x_off + margin, margin, "PROFILE", "HOLES", "NOTES")
+            _draw_part_dxf(
+                msp, pc, x_off + margin, margin, "BOUNDS", "HOLES", "NOTES"
+            )
         x_off += W + 10.0
     path = os.path.join(outdir, "reference_nest.dxf")
     doc.saveas(path)
     return path
 
 
+def render_reference_plate_dxfs(res, outdir):
+    """Write one clearly named reference-only DXF per used plate."""
+    import ezdxf
+
+    margin = res["meta"]["edge_margin_in"]
+    paths = []
+    for pr in res["plate_reports"]:
+        doc = ezdxf.new("R2010")
+        doc.units = ezdxf.units.IN
+        msp = doc.modelspace()
+        for layer, color in [
+            ("PLATE", 5),
+            ("BOUNDS", 2),
+            ("HOLES", 1),
+            ("NOTES", 7),
+        ]:
+            doc.layers.add(layer, color=color)
+        width, height = pr["W"], pr["H"]
+        msp.add_lwpolyline(
+            [(0, 0), (width, 0), (width, height), (0, height)],
+            close=True,
+            dxfattribs={"layer": "PLATE"},
+        )
+        for placement in pr["placements"]:
+            _draw_part_dxf(
+                msp, placement, margin, margin, "BOUNDS", "HOLES", "NOTES"
+            )
+        path = os.path.join(outdir, f"reference_plate_{pr['index']}.dxf")
+        doc.saveas(path)
+        paths.append(path)
+    return paths
+
+
 def render_burn_dxfs(res, outdir):
-    """One DXF per sheet for the burn table. Origin at sheet corner."""
+    """Write cut-geometry-only DXFs for a fully verified rectangular nest."""
     if not res.get("burn_dxf_eligible", False):
         return []
 
@@ -666,59 +761,225 @@ def render_burn_dxfs(res, outdir):
         doc = ezdxf.new("R2010")
         doc.units = ezdxf.units.IN
         msp = doc.modelspace()
-        for lyr, col in [("PLATE", 5), ("PROFILE", 3), ("HOLES", 1), ("NOTES", 7)]:
+        for lyr, col in [("PROFILE", 3), ("HOLES", 1)]:
             doc.layers.add(lyr, color=col)
-        W, H = pr["W"], pr["H"]
-        # sheet outline for reference (delete on the table if not wanted)
-        msp.add_lwpolyline([(0, 0), (W, 0), (W, H), (0, H), (0, 0)],
-                           dxfattribs={"layer": "PLATE", "closed": True})
         for pc in pr["placements"]:
-            _draw_part_dxf(msp, pc, margin, margin, "PROFILE", "HOLES", "NOTES")
+            _draw_part_dxf(
+                msp, pc, margin, margin, "PROFILE", "HOLES", None, label=False
+            )
         path = os.path.join(outdir, f"burn_plate_{pr['index']}.dxf")
         doc.saveas(path)
         paths.append(path)
     return paths
 
 
+def stage_decision(res, geometry_verified_only=False):
+    """Map the temporary legacy nest result onto the shared stage contract."""
+    findings = []
+    if res["unplaced"]:
+        findings.append({
+            "code": "UNPLACED_PARTS",
+            "severity": "error",
+            "message": f"{len(res['unplaced'])} required part(s) remain unplaced.",
+        })
+    for warning in res["invalid_hole_warnings"]:
+        findings.append({
+            "code": "INVALID_HOLE_GEOMETRY",
+            "severity": "error",
+            "message": warning,
+        })
+
+    if findings:
+        outcome = "blocked"
+        package_status = "nested_partial" if res["unplaced"] else "draft"
+    elif res["has_irregular"]:
+        outcome = "review_required"
+        package_status = "review_required"
+        findings.append({
+            "code": "APPROXIMATE_PROFILE_GEOMETRY",
+            "severity": "warning",
+            "message": (
+                "Irregular profiles are represented by bounding boxes in "
+                "reference-only artifacts."
+            ),
+        })
+    else:
+        outcome = "ready"
+        package_status = "nest_verified"
+
+    if geometry_verified_only and outcome != "ready":
+        findings.append({
+            "code": "GEOMETRY_VERIFIED_REQUIRED",
+            "severity": "error",
+            "message": "The requested geometry-verified output is unavailable.",
+        })
+
+    return outcome, package_status, findings
+
+
+def package_version():
+    package_path = Path(__file__).resolve().parents[3] / "package.json"
+    try:
+        return json.loads(package_path.read_text(encoding="utf-8"))["version"]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return "unknown"
+
+
+def missing_render_dependencies():
+    """Return optional render modules unavailable to this interpreter."""
+    modules = ("ezdxf", "matplotlib", "numpy")
+    return [name for name in modules if importlib.util.find_spec(name) is None]
+
+
+def publish_nest_run(job, args):
+    """Run a legacy nest job and publish one isolated, manifested artifact set."""
+    result = run_job(job)
+    missing_dependencies = [] if args.no_render else missing_render_dependencies()
+    if missing_dependencies:
+        outcome = "dependency_missing"
+        package_status = "draft"
+        findings = [{
+            "code": "RENDER_DEPENDENCY_MISSING",
+            "severity": "error",
+            "message": (
+                "Rendering requires the missing module(s): "
+                + ", ".join(missing_dependencies)
+            ),
+        }]
+    else:
+        outcome, package_status, findings = stage_decision(
+            result, args.geometry_verified_only
+        )
+    result["run_outcome"] = outcome
+    result["package_status"] = package_status
+    report = render_text(result)
+
+    configuration = {
+        "algorithm_version": NEST_ALGORITHM_VERSION,
+        "geometry_verified_only": args.geometry_verified_only,
+        "render": not args.no_render,
+    }
+    approximations = []
+    if result["has_irregular"]:
+        approximations.append({
+            "code": "BOUNDING_BOX_NESTING",
+            "message": "One or more irregular profiles use bounding-box placement.",
+        })
+    qa_report = {
+        "schema_version": "1.0.0",
+        "stage": "steel-nest",
+        "run_outcome": outcome,
+        "package_status": package_status,
+        "geometry_readiness": result["geometry_readiness"],
+        "geometry_verified_only_requested": args.geometry_verified_only,
+        "findings": findings,
+    }
+
+    with RunPublisher(
+        args.out,
+        stage="steel-nest",
+        run_outcome=outcome,
+        package_status=package_status,
+        input_hash=sha256_bytes(canonical_json_bytes(job)),
+        configuration_hash=sha256_bytes(canonical_json_bytes(configuration)),
+        schema_versions={
+            "run_manifest": "1.0.0",
+            "nest_result": "legacy-u1",
+        },
+        tool_versions={
+            "pi_steel": package_version(),
+            "nest_algorithm": NEST_ALGORITHM_VERSION,
+        },
+        explicit_dates={},
+        warnings=result["burn_dxf_warnings"]
+        + [finding["message"] for finding in findings if finding["severity"] == "error"],
+        approximations=approximations,
+        run_id=args.run_id,
+    ) as publisher:
+        publisher.write_qa_report(qa_report)
+        publisher.write_bytes(
+            "report.txt",
+            report.encode("utf-8"),
+            readiness="diagnostic",
+            media_type="text/plain",
+        )
+        publisher.write_json("result.json", result, readiness="diagnostic")
+        publisher.write_json(
+            "rfq_nesting.json", result["rfq_nesting"], readiness="diagnostic"
+        )
+
+        if not args.no_render and not missing_dependencies:
+            publisher.register_artifact(
+                "layout.pdf", readiness="reference_only", media_type="application/pdf"
+            )
+            for plate in result["plate_reports"]:
+                publisher.register_artifact(
+                    f"plate_{plate['index']}.png",
+                    readiness="reference_only",
+                    media_type="image/png",
+                )
+            render_layout(result, publisher.staging_path)
+
+            if result["plate_reports"]:
+                publisher.register_artifact(
+                    "reference_nest.dxf",
+                    readiness="reference_only",
+                    media_type="image/vnd.dxf",
+                )
+                for plate in result["plate_reports"]:
+                    publisher.register_artifact(
+                        f"reference_plate_{plate['index']}.dxf",
+                        readiness="reference_only",
+                        media_type="image/vnd.dxf",
+                    )
+                render_dxf_overview(result, publisher.staging_path)
+                render_reference_plate_dxfs(result, publisher.staging_path)
+
+            if outcome == "ready":
+                for plate in result["plate_reports"]:
+                    publisher.register_artifact(
+                        f"burn_plate_{plate['index']}.dxf",
+                        readiness="geometry_verified",
+                        media_type="image/vnd.dxf",
+                    )
+                render_burn_dxfs(result, publisher.staging_path)
+
+        final_path = publisher.publish()
+
+    return result, qa_report, report, final_path
+
+
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
-def main():
-    ap = argparse.ArgumentParser(description="Steel plate nesting engine")
+def main(argv=None):
+    ap = StageArgumentParser(description="Steel plate nesting engine")
     ap.add_argument("--job", required=True)
-    ap.add_argument("--out", default="out")
+    ap.add_argument(
+        "--out",
+        default="out",
+        help="Publication root; each invocation writes an isolated runs/<run-id>/",
+    )
     ap.add_argument("--no-render", action="store_true", help="Skip PDF/PNG/DXF")
-    args = ap.parse_args()
+    ap.add_argument(
+        "--geometry-verified-only",
+        action="store_true",
+        help="Require geometry-verified output; unresolved jobs still publish QA",
+    )
+    ap.add_argument("--run-id", help=argparse.SUPPRESS)
+    args = ap.parse_args(argv)
 
-    with open(args.job) as f:
+    with open(args.job, encoding="utf-8") as f:
         job = json.load(f)
-    os.makedirs(args.out, exist_ok=True)
-
-    res = run_job(job)
-
-    report = render_text(res)
+    result, qa_report, report, final_path = publish_nest_run(job, args)
     print(report)
-    with open(os.path.join(args.out, "report.txt"), "w") as f:
-        f.write(report)
-    with open(os.path.join(args.out, "result.json"), "w") as f:
-        json.dump(res, f, indent=2)
-    with open(os.path.join(args.out, "rfq_nesting.json"), "w") as f:
-        json.dump(res["rfq_nesting"], f, indent=2)
-
-    if not args.no_render:
-        pdf, pngs = render_layout(res, args.out)
-        overview = render_dxf_overview(res, args.out)
-        burns = render_burn_dxfs(res, args.out)
-        print(f"\nWrote: {pdf}")
-        print(f"       {overview}  (reference only)")
-        for b in burns:
-            print(f"       {b}  (burn table — one per sheet)")
-        if not burns:
-            print("       burn DXFs suppressed:")
-            for warning in res["burn_dxf_warnings"]:
-                print(f"         - {warning}")
-        print(f"       {len(pngs)} PNG(s), report.txt, result.json, rfq_nesting.json")
+    print(f"\nPublished {qa_report['run_outcome']} run: {final_path}")
+    if result["burn_dxf_warnings"]:
+        print("Burn DXFs suppressed:")
+        for warning in result["burn_dxf_warnings"]:
+            print(f"  - {warning}")
+    return outcome_exit_code(qa_report["run_outcome"])
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

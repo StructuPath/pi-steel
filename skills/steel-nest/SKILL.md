@@ -7,9 +7,9 @@ description: "Nest steel parts onto stock plates and estimate material — the p
 
 ## What This Skill Does
 
-This is the in-house version of the plate-nesting step a CAM package (SigmaNEST / Hypertherm / FANUC) performs: it takes a list of parts and the plate stock on hand, packs the parts onto as few plates as possible, and tells you the yield, the drops you can reuse, the material weight, and the cost. It also draws the layout and exports a DXF.
+This is an estimating-oriented version of the plate-nesting step performed by CAM software: it takes a list of parts and the plate stock on hand, packs the parts onto as few plates as possible, and tells you the yield, the drops you can reuse, the material weight, and the cost. It also draws the layout and exports guarded reference or cut-geometry DXFs.
 
-It exists so that the moment an order lands, anyone in the shop can get a fast, repeatable material number for quoting and a layout the cutter can follow — without waiting on the CAM seat.
+It exists so an estimator can get a fast, repeatable material number and a reviewable layout. It does not replace CAM setup or operator verification.
 
 ## What It Does Well vs. What It Doesn't
 
@@ -18,12 +18,12 @@ Be honest with the user about the boundary — it protects the shop from over-tr
 **Reliable:**
 - Rectangular / plate-blank parts nest **exactly** (MaxRects bin-packing with rotation).
 - Multiple plate sizes, kerf + gap spacing, edge margin (grip/clamp keep-out).
-- **Holes and rectangular cutouts** on any part — subtracted from weight/cost, rotated with the part, and cut as real geometry in the output.
+- **Holes and rectangular cutouts** on verified rectangular parts — subtracted from weight/cost, rotated with the part, and emitted as cut geometry only when the complete job passes the output gate.
 - Yield %, scrap weight, largest reusable **drop** per plate.
 - Material weight and cost (by $/lb — which also values scrap — or by $/sheet).
 - Labeled layout (PDF + one PNG per plate).
-- **Reference file**: `reference_nest.dxf`, an all-sheets estimating/layout reference.
-- **Guarded burn-table files**: one DXF per sheet (`burn_plate_N.dxf`) with part outlines on `PROFILE` and holes on `HOLES`, origin at the sheet corner, but only when every part is rectangular, every required part fits, and every supported hole stays inside its part.
+- **Reference files**: `reference_nest.dxf` plus `reference_plate_N.dxf`, with sheet outlines, bounding boxes, holes, and labels for estimating review.
+- **Guarded cut-geometry files**: one DXF per sheet (`burn_plate_N.dxf`) containing only closed part outlines on `PROFILE` and holes/cutouts on `HOLES`, with origin at the sheet corner. They exist only when every part is rectangular, every required part fits, and every supported hole stays inside its part.
 
 **Approximate — always flag it:**
 - **Irregular parts** (gussets, brackets, curved profiles, parts with holes) are nested by their **bounding box**, not true shape. Real yield is a little better than reported. For exact weight/cost on those, get the true cut area (in²) into the part's `area` field. This is NOT true-shape nesting like a dedicated CAM engine.
@@ -57,16 +57,37 @@ Write the job JSON, then run the engine:
 python3 scripts/nest.py --job <job.json> --out <outdir>
 ```
 
-Outputs land in `<outdir>/`:
+The legacy job JSON and command arguments remain accepted. `<outdir>` is now a
+publication root rather than a flat artifact directory. Every invocation creates
+`<outdir>/runs/<run-id>/` and atomically updates `<outdir>/latest-run.json`; follow
+that pointer to find the current run. This prevents an older burn file from appearing
+current after a blocked rerun.
+
+Use `--geometry-verified-only` when reference-only geometry does not satisfy the
+request. The command still publishes its QA diagnostics, but exits unsuccessfully.
+
+Each run contains:
+
+- `run-manifest.json` and `qa-report.json` — outcome, readiness, hashes, warnings, and the exact artifact allow-list
 - `layout.pdf` — every plate drawn (holes shown) + a summary page (the main deliverable)
 - `plate_1.png`, `plate_2.png`, … — one image per plate
-- `burn_plate_1.dxf`, `burn_plate_2.dxf`, … — guarded per-sheet import geometry (PROFILE + HOLES layers, origin at sheet corner); absent when the safety guard blocks them
-- `reference_nest.dxf` — all sheets side-by-side, reference only
+- `burn_plate_1.dxf`, `burn_plate_2.dxf`, … — geometry-verified cut entities only; absent for review-required or blocked runs
+- `reference_nest.dxf` and `reference_plate_N.dxf` — explicitly reference-only layouts
 - `rfq_nesting.json` — the Material / Nesting Plan / Drop Notes block for the `steel-rfq` hand-off (see below)
 - `report.txt` — the text report
 - `result.json` — structured result (plates, placements, holes, yield, cost) for downstream use
 
-The engine has no third-party build dependencies beyond `ezdxf`, `matplotlib`, and `numpy`. Install once if missing: `pip install --break-system-packages ezdxf matplotlib numpy`.
+Exit meanings:
+
+- `0` — `ready`; requested artifacts were published and cut geometry is verified within the supported rectangular scope
+- `2` — `review_required`; safe reference outputs were published, but no burn DXF exists
+- `3` — `blocked`; validation or unplaced material prevented fabrication-style output
+- `4` — a required runtime capability is missing
+- `1` — usage or internal error
+
+Install the declared dependencies from the package root with
+`python3 -m pip install -r requirements-dev.txt`. Formula baking remains an optional
+capability reported by `python3 scripts/doctor.py`.
 
 ## What to Deliver
 
@@ -76,7 +97,7 @@ Verify before presenting: the engine already checks that no parts overlap and al
 
 ## Integration with steel-rfq
 
-The `steel-rfq` skill has a "Nesting / Drop Reference" table. This engine writes exactly that data to `rfq_nesting.json` on every run — one row per plate material with `material`, `nesting_plan`, `drop_notes`, plus `sheets_needed` (for cross-checking the estimate's assumed sheet count) and `total_cost`. When an RFQ involves plate, `steel-rfq` builds a nest job from the plate parts, runs this engine, and reads `rfq_nesting.json` straight into its table. Keep this JSON shape stable — the RFQ skill depends on those field names.
+The `steel-rfq` skill has a "Nesting / Drop Reference" table. This engine writes exactly that data to `rfq_nesting.json` inside each isolated run — one row per plate material with `material`, `nesting_plan`, `drop_notes`, plus `sheets_needed` (for cross-checking the estimate's assumed sheet count) and `total_cost`. Resolve the current run through `latest-run.json` before reading it. Keep this JSON shape stable — the RFQ skill depends on those field names.
 
 ## Common Variations
 
