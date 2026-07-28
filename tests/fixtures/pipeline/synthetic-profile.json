@@ -1,0 +1,13 @@
+{
+  "company_name": "Example Fabricator",
+  "city_state": "Example City, ST",
+  "logo": null,
+  "terms_template": {
+    "template_id": "SYNTHETIC-PIPELINE-TEXT-001",
+    "content": "SYNTHETIC TEST TEXT — Human review is required.",
+    "content_hash": "fc48b45393a03898511da34d6d46f96371633e1f06d02d4ae515f4bc0a92e260",
+    "approver": "Example Approver",
+    "approval_date": "2026-07-28",
+    "status": "approved"
+  }
+}

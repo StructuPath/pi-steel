@@ -1,6 +1,9 @@
 {
-  "job_name": "SO-4471  Conveyor Frame Brackets",
-  "customer": "Rocky Mtn Aggregate",
+  "job_name": "SYNTHETIC-DEMO-001  Generated Training Geometry",
+  "customer": "Example Customer",
+  "material": "carbon_steel",
+  "grade": "A36",
+  "unit_system": "imperial",
   "settings": {
     "kerf_in": 0.06,
     "part_gap_in": 0.25,
@@ -10,38 +13,31 @@
   },
   "stock": [
     {
-      "name": "A36 Plate 1/2\"",
-      "width": 96,
-      "height": 48,
+      "name": "Synthetic Plate",
+      "width": 60,
+      "height": 30,
       "thickness": 0.5,
-      "qty": 6,
-      "cost_per_lb": 0.92
+      "qty": 3
     }
   ],
   "parts": [
-    { "name": "Base Plate BP1", "width": 14, "height": 10, "qty": 6, "shape": "rect",
+    { "source_id": "SYNTHETIC-SRC-RECT-A", "name": "Training Rect A", "width": 11, "height": 7, "qty": 3, "shape": "rect",
       "holes": [
-        { "dia": 0.875, "x": 2,  "y": 2 },
-        { "dia": 0.875, "x": 12, "y": 2 },
-        { "dia": 0.875, "x": 2,  "y": 8 },
-        { "dia": 0.875, "x": 12, "y": 8 }
+        { "dia": 0.75, "x": 2, "y": 2 },
+        { "dia": 0.75, "x": 9, "y": 5 }
       ] },
-    { "name": "Column Cap CC1", "width": 16, "height": 16, "qty": 4, "shape": "rect",
+    { "source_id": "SYNTHETIC-SRC-RECT-B", "name": "Training Rect B", "width": 13, "height": 9, "qty": 2, "shape": "rect",
       "holes": [
-        { "dia": 1.0625, "x": 3,  "y": 3 },
-        { "dia": 1.0625, "x": 13, "y": 3 },
-        { "dia": 1.0625, "x": 3,  "y": 13 },
-        { "dia": 1.0625, "x": 13, "y": 13 }
+        { "dia": 0.625, "x": 3, "y": 3 },
+        { "dia": 0.625, "x": 10, "y": 6 }
       ] },
-    { "name": "Stiffener ST1", "width": 9, "height": 6, "qty": 20, "shape": "rect" },
-    { "name": "Gusset G1", "width": 12, "height": 12, "qty": 12, "shape": "irregular", "area": 72 },
-    { "name": "Flat Bar FB1", "width": 30, "height": 4, "qty": 10, "shape": "rect" },
-    { "name": "Cover CV1", "width": 24, "height": 18, "qty": 3, "shape": "rect",
+    { "source_id": "SYNTHETIC-SRC-IRREGULAR-C", "name": "Training Irregular C", "width": 9, "height": 8, "qty": 4, "shape": "irregular", "area": 28 },
+    { "source_id": "SYNTHETIC-SRC-RECT-D", "name": "Training Rect D", "width": 17, "height": 5, "qty": 5, "shape": "rect" },
+    { "source_id": "SYNTHETIC-SRC-RECT-E", "name": "Training Rect E", "width": 19, "height": 11, "qty": 2, "shape": "rect",
       "holes": [
-        { "w": 6, "h": 4, "x": 12, "y": 9 }
+        { "w": 5, "h": 3, "x": 9.5, "y": 5.5 }
       ] },
-    { "name": "Clip CL1", "width": 5, "height": 3, "qty": 24, "shape": "rect",
-      "holes": [ { "dia": 0.5625, "x": 2.5, "y": 1.5 } ] },
-    { "name": "Web Plate WP1", "width": 40, "height": 12, "qty": 4, "shape": "rect" }
+    { "source_id": "SYNTHETIC-SRC-RECT-F", "name": "Training Rect F", "width": 6, "height": 4, "qty": 7, "shape": "rect",
+      "holes": [ { "dia": 0.5, "x": 3, "y": 2 } ] }
   ]
 }

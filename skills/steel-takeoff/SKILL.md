@@ -72,7 +72,9 @@ For each unique member mark, create a line item:
 cat assets/bom-template.csv
 ```
 
-Fields: Mark, Qty, Size, Grade, Length_ft, Unit_Wt_plf, Total_Wt_lbs, Connections, Notes
+Fields: Source_ID, Mark, Qty, Size, Grade, Length_ft, Unit_Wt_plf,
+Total_Wt_lbs, Connections, Notes, Source_Sheet, Source_Detail, Intent.
+Use stable synthetic or source-system IDs; do not invent drawing evidence.
 
 ### Step 3 — Look Up Unit Weights
 For every member size in the BOM, look up the unit weight from the AISC database:
@@ -96,7 +98,9 @@ For every member size in the BOM, look up the unit weight from the AISC database
 #   Total weight in lbs and tons
 #   Connection allowance (12%)
 #   Misc steel allowance (5%)
-#   Grand total with estimated cost
+#   Grand total weight
+#   No pricing unless a separate project input supplies an explicit currency,
+#   unit basis, effective date, and source
 ```
 
 ### Step 5 — Add Connections & Misc Steel

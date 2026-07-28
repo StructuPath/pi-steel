@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://structupath.ai/schemas/pi-steel/run-manifest-1.0.0.json",
+  "title": "Pi Steel Run Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "stage",
+    "run_outcome",
+    "package_status",
+    "created_at",
+    "schema_versions",
+    "tool_versions",
+    "input_hash",
+    "configuration_hash",
+    "explicit_dates",
+    "warnings",
+    "approximations",
+    "artifacts",
+    "semantic_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "stage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run_outcome": {
+      "enum": [
+        "ready",
+        "review_required",
+        "blocked",
+        "dependency_missing",
+        "usage_or_internal_error"
+      ]
+    },
+    "package_status": {
+      "enum": [
+        "draft",
+        "review_required",
+        "validated",
+        "nested_partial",
+        "nest_verified",
+        "rfq_draft_review_required",
+        "rfq_ready_for_review"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "schema_versions": {
+      "$ref": "#/$defs/versionMap"
+    },
+    "tool_versions": {
+      "$ref": "#/$defs/versionMap"
+    },
+    "input_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "configuration_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "explicit_dates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "format": "date"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {}
+    },
+    "approximations": {
+      "type": "array",
+      "items": {}
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "semantic_hash": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "versionMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "readiness"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "readiness": {
+          "enum": [
+            "geometry_verified",
+            "reference_only",
+            "draft",
+            "diagnostic"
+          ]
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

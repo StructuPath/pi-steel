@@ -1,0 +1,13 @@
+{
+  "company_name": "Example Fabricator",
+  "city_state": "Example City, ST",
+  "logo": "missing-optional-logo.png",
+  "terms_template": {
+    "template_id": "SYNTHETIC-TERMS-001",
+    "content": "SYNTHETIC TEST TERMS — Quote subject to written review.",
+    "content_hash": "abb47a7a3863dc00db1a93df990d5f1626afbb89ce14489f6bf5d7ccd9ca463c",
+    "approver": "Example Approver",
+    "approval_date": "2026-07-28",
+    "status": "approved"
+  }
+}

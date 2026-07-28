@@ -1,0 +1,43 @@
+{
+  "job_name": "SYNTHETIC-WORKFLOW-MIXED-PLATE",
+  "customer": "Example Customer",
+  "settings": {
+    "kerf_in": 0.05,
+    "part_gap_in": 0.2,
+    "edge_margin_in": 0.4,
+    "density_lb_in3": 0.2836
+  },
+  "stock": [
+    {
+      "name": "Synthetic Plate A",
+      "width": 42,
+      "height": 24,
+      "thickness": 0.375,
+      "qty": 2
+    }
+  ],
+  "parts": [
+    {
+      "name": "SYN-RECT-1",
+      "width": 10,
+      "height": 6,
+      "qty": 3,
+      "shape": "rect",
+      "holes": [
+        {
+          "dia": 0.75,
+          "x": 5,
+          "y": 3
+        }
+      ]
+    },
+    {
+      "name": "SYN-IRREGULAR-1",
+      "width": 8,
+      "height": 7,
+      "qty": 2,
+      "shape": "irregular",
+      "area": 31
+    }
+  ]
+}

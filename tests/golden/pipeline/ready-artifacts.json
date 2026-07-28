@@ -1,0 +1,13 @@
+{
+  "artifact_paths": [
+    "Synthetic_Pipeline_Project_RFQ_Material_List.xlsx",
+    "estimate-package.json",
+    "nest-result.json",
+    "normalized-bom.json",
+    "qa-report.json",
+    "rfq-nesting.json",
+    "workbook-semantic.json"
+  ],
+  "run_outcome": "ready",
+  "package_status": "rfq_ready_for_review"
+}

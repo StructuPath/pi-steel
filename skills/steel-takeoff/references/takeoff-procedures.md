@@ -2,7 +2,9 @@
 
 ## Overview
 
-A steel takeoff quantifies every piece of structural steel on a project to determine total tonnage for bidding. Accuracy directly impacts profit margin — a 5% error on a 200-ton job is 10 tons ($32,000+ at current rates).
+A steel takeoff quantifies every piece of structural steel on a project to determine
+total tonnage for bidding. Accuracy directly affects quantities, schedule, and cost;
+this public guide intentionally contains no market rates or company pricing.
 
 ## Takeoff Order (recommended)
 

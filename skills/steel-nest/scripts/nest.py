@@ -8,16 +8,18 @@ Reliable:
   * Nests parts onto stock plates with a MaxRects bin-packing algorithm
     (rotation, kerf + gap spacing, edge margin, multiple plate sizes,
     greedy multi-plate fill). Rectangular parts nest exactly.
-  * Parts can carry HOLES (round) and rectangular CUTOUTS -- subtracted
-    from weight/cost, rotated with the part, drawn in the layout, and cut
-    as real geometry in the DXF output.
-  * Yield / scrap / largest reusable drop, part weight, material cost.
+  * Rectangular parts can carry HOLES (round) and rectangular CUTOUTS --
+    subtracted from weight/cost, rotated with the part, drawn in the layout,
+    and emitted as cut geometry only after the complete job passes its gate.
+  * Separate packing utilization and net material yield, part/plate weight,
+    optional reconciled cost, and unverified remnant candidates.
   * Labeled layout (PNG per plate + combined PDF).
   * DXF outputs:
-      - nest.dxf              all plates side-by-side (overview/reference)
-      - burn_plate_N.dxf      ONE FILE PER SHEET for the burn table:
-                              part profiles on layer PROFILE, holes on
-                              layer HOLES, origin at the sheet corner.
+      - reference_nest.dxf    all plates side-by-side (reference only)
+      - reference_plate_N.dxf one reference-only file per used plate
+      - burn_plate_N.dxf      ONE FILE PER SHEET for the burn table when
+                              every part is rectangular, every required part
+                              fits, and supported holes stay inside the part.
 
 Deliberately NOT done:
   * True-shape nesting of irregular parts (they nest by BOUNDING BOX,
@@ -27,16 +29,59 @@ Deliberately NOT done:
     machine's own CAM/post applies those (that is where they belong).
 
 Usage:
-  python3 nest.py --job job.json --out out/
+  python3 nest.py --job job.json --out published/
+
+The output root receives isolated runs/<run-id>/ directories plus a
+latest-run.json pointer. Exit 0 is ready, 2 requires review, and 3 is blocked.
 """
 
 import argparse
+import importlib.util
 import json
 import math
 import os
+import sys
+from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+SHARED_ROOT = Path(__file__).resolve().parents[2] / "_shared"
+if str(SHARED_ROOT) not in sys.path:
+    sys.path.insert(0, str(SHARED_ROOT))
+from bootstrap import bootstrap_shared  # noqa: E402
+
+bootstrap_shared(__file__)
+from pi_steel import (  # noqa: E402
+    NEST_RESULT_VERSION,
+    RunPublisher,
+    StageArgumentParser,
+    canonical_json_bytes,
+    item_id_for,
+    outcome_exit_code,
+    package_version,
+    placement_ids,
+    publish_failure_diagnostic,
+    sha256_bytes,
+)
+from pi_steel.contracts import content_hash, fallback_source_id, instance_ids  # noqa: E402
+from pi_steel.geometry_verify import (  # noqa: E402
+    SUPPORTED_SHAPES,
+    finite_positive,
+    hole_within_bounds,
+    verify_nest_placements,
+)
 
 STEEL_DENSITY = 0.2836  # lb/in^3, A36 mild steel
+NEST_ALGORITHM_VERSION = "maxrects-bssf-u3"
+
+
+def _valid_hash(value):
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 # --------------------------------------------------------------------------
@@ -53,6 +98,11 @@ class FreeRect:
 @dataclass
 class Placement:
     part_id: str
+    source_id: str
+    item_id: str
+    instance_id: str
+    placement_id: str
+    stock_id: str
     label: str
     x: float                 # placed lower-left, usable (post-margin) coords
     y: float
@@ -65,6 +115,9 @@ class Placement:
     holes: list = field(default_factory=list)   # in original part coords
     base_area: float = 0.0   # gross area (bbox for rect, declared area for irregular)
     holes_area: float = 0.0  # total area removed by holes/cutouts
+    material: str = ""
+    grade: str = ""
+    thickness: float = 0.0
 
 
 class MaxRectsBin:
@@ -158,10 +211,6 @@ class MaxRectsBin:
                 inner.x + inner.w <= outer.x + outer.w + cls.EPS and
                 inner.y + inner.h <= outer.y + outer.h + cls.EPS)
 
-    def largest_free(self):
-        return max(self.free, key=lambda r: r.w * r.h) if self.free else None
-
-
 # --------------------------------------------------------------------------
 # Holes
 # --------------------------------------------------------------------------
@@ -189,193 +238,855 @@ def hole_local(pc, hole):
 # --------------------------------------------------------------------------
 # Job runner
 # --------------------------------------------------------------------------
-def run_job(job):
-    s = job.get("settings", {})
-    kerf = float(s.get("kerf_in", 0.06))
-    gap = float(s.get("part_gap_in", 0.25))
-    margin = float(s.get("edge_margin_in", 0.5))
-    density = float(s.get("density_lb_in3", STEEL_DENSITY))
-    spacing = kerf + gap
+def _legacy_hole_to_canonical(hole):
+    if hole.get("dia") is not None:
+        return {
+            "kind": "round",
+            "diameter": hole.get("dia"),
+            "x": hole.get("x"),
+            "y": hole.get("y"),
+        }
+    return {
+        "kind": "rect",
+        "width": hole.get("w"),
+        "height": hole.get("h"),
+        "x": hole.get("x"),
+        "y": hole.get("y"),
+    }
 
-    # expand parts, largest first
-    units = []
-    for p in job["parts"]:
-        holes = p.get("holes", []) or []
-        h_area = sum(hole_area(h) for h in holes)
-        base = float(p["width"]) * float(p["height"])
-        if p.get("shape") == "irregular" and p.get("area"):
-            base = float(p["area"])
-        for _ in range(int(p.get("qty", 1))):
-            units.append({
-                "part_id": p["name"], "label": p["name"],
-                "w": float(p["width"]), "h": float(p["height"]),
-                "rotatable": bool(p.get("rotatable", True)),
-                "shape": p.get("shape", "rect"),
-                "holes": holes, "base_area": base, "holes_area": h_area,
-            })
-    units.sort(key=lambda u: u["w"] * u["h"], reverse=True)
+
+def _validation_finding(code, path, message, severity="error"):
+    return {
+        "code": code,
+        "severity": severity,
+        "path": path,
+        "message": message,
+    }
+
+
+def normalize_job(job):
+    """Normalize and validate the legacy direct-use JSON before any placement."""
+    findings = []
+    settings = job.get("settings", {})
+
+    def number(value, path, *, positive=False, nonnegative=False):
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = math.nan
+        valid = math.isfinite(parsed)
+        if positive:
+            valid = valid and parsed > 0
+        if nonnegative:
+            valid = valid and parsed >= 0
+        if not valid:
+            findings.append(
+                _validation_finding(
+                    "invalid_numeric_input",
+                    path,
+                    "Value must be finite"
+                    + (" and greater than zero." if positive else " and non-negative."),
+                )
+            )
+            return 0.0
+        return parsed
+
+    kerf = number(settings.get("kerf_in", 0.06), "$.settings.kerf_in", nonnegative=True)
+    gap = number(settings.get("part_gap_in", 0.25), "$.settings.part_gap_in", nonnegative=True)
+    margin = number(
+        settings.get("edge_margin_in", 0.5),
+        "$.settings.edge_margin_in",
+        nonnegative=True,
+    )
+    density = number(
+        settings.get("density_lb_in3", STEEL_DENSITY),
+        "$.settings.density_lb_in3",
+        positive=True,
+    )
+    unit_system = job.get("unit_system")
+    if unit_system is None:
+        findings.append(
+            _validation_finding(
+                "missing_unit_basis",
+                "$.unit_system",
+                "The direct nesting engine requires an explicit imperial unit basis.",
+            )
+        )
+    elif unit_system != "imperial":
+        findings.append(
+            _validation_finding(
+                "unsupported_unit_system",
+                "$.unit_system",
+                "The direct nesting engine currently requires imperial inches.",
+            )
+        )
+
+    project_id = job.get("project_id") or job.get("job_name") or "LEGACY-NEST"
+    revision_id = job.get("revision_id", "LEGACY-REVISION")
+    for identity_field, value in (
+        ("project_id", project_id),
+        ("revision_id", revision_id),
+    ):
+        if not isinstance(value, str) or not value:
+            findings.append(
+                _validation_finding(
+                    f"invalid_{identity_field}",
+                    f"$.{identity_field}",
+                    f"{identity_field} must be a non-empty string.",
+                )
+            )
+            if identity_field == "project_id":
+                project_id = "LEGACY-NEST"
+            else:
+                revision_id = "LEGACY-REVISION"
+    estimate_input_hash = job.get("estimate_input_hash")
+    if estimate_input_hash is not None and not _valid_hash(estimate_input_hash):
+        findings.append(
+            _validation_finding(
+                "invalid_estimate_input_hash",
+                "$.estimate_input_hash",
+                "Estimate input hash must be a lowercase SHA-256 value.",
+            )
+        )
+        estimate_input_hash = None
+    default_material = job.get("material")
+    default_grade = job.get("grade")
+    default_thickness = settings.get("thickness_in")
+    parts = []
+    for index, part in enumerate(job.get("parts", [])):
+        path = f"$.parts[{index}]"
+        width = number(part.get("width"), f"{path}.width", positive=True)
+        height = number(part.get("height"), f"{path}.height", positive=True)
+        thickness = number(
+            part.get("thickness", default_thickness),
+            f"{path}.thickness",
+            positive=True,
+        )
+        try:
+            quantity = int(part.get("qty", 1))
+            quantity_valid = quantity > 0 and quantity == float(part.get("qty", 1))
+        except (TypeError, ValueError):
+            quantity, quantity_valid = 0, False
+        if not quantity_valid:
+            findings.append(
+                _validation_finding(
+                    "invalid_quantity", f"{path}.qty", "Quantity must be a positive integer."
+                )
+            )
+        shape = part.get("shape", "rect")
+        if shape not in SUPPORTED_SHAPES:
+            findings.append(
+                _validation_finding(
+                    "unsupported_shape",
+                    f"{path}.shape",
+                    "Supported shapes are rect and irregular.",
+                )
+            )
+        material = part.get("material", default_material)
+        grade = part.get("grade", default_grade)
+        if not material or not grade or not finite_positive(thickness):
+            findings.append(
+                _validation_finding(
+                    "missing_material_basis",
+                    path,
+                    "Material, grade, and thickness must be explicit before placement.",
+                )
+            )
+        holes = part.get("holes", []) or []
+        holes_area = 0.0
+        if finite_positive(width) and finite_positive(height):
+            for hole_index, hole in enumerate(holes):
+                if not hole_within_bounds(
+                    _legacy_hole_to_canonical(hole), width, height
+                ):
+                    findings.append(
+                        _validation_finding(
+                            "invalid_hole_geometry",
+                            f"{path}.holes[{hole_index}]",
+                            "Hole is unsupported or extends outside the part.",
+                        )
+                    )
+                try:
+                    holes_area += hole_area(hole)
+                except (TypeError, ValueError):
+                    pass
+        base_area = width * height if finite_positive(width) and finite_positive(height) else 0
+        approximation = "exact"
+        if shape == "irregular":
+            if part.get("area") is None:
+                approximation = "bounding_box_estimate"
+                findings.append(
+                    _validation_finding(
+                        "missing_irregular_area",
+                        f"{path}.area",
+                        "Irregular net area is approximated by its bounding box.",
+                        severity="warning",
+                    )
+                )
+            else:
+                declared_area = number(part.get("area"), f"{path}.area", positive=True)
+                if math.isfinite(declared_area) and declared_area > base_area + 1e-9:
+                    findings.append(
+                        _validation_finding(
+                            "invalid_irregular_area",
+                            f"{path}.area",
+                            "Declared irregular area cannot exceed its bounding box.",
+                        )
+                    )
+                base_area = declared_area
+                approximation = "declared_area"
+        if base_area - holes_area <= 0:
+            findings.append(
+                _validation_finding(
+                    "nonpositive_net_area",
+                    path,
+                    "Part net area after holes must be greater than zero.",
+                )
+            )
+        explicit_source = part.get("source_id")
+        source_id = explicit_source or fallback_source_id(
+            revision_id,
+            {
+                key: part.get(key)
+                for key in (
+                    "name",
+                    "material",
+                    "grade",
+                    "thickness",
+                    "width",
+                    "height",
+                    "shape",
+                )
+            },
+        )
+        item_id = part.get("item_id") or item_id_for(
+            project_id, revision_id, source_id
+        )
+        parts.append(
+            {
+                "source_id": source_id,
+                "item_id": item_id,
+                "label": part.get("name", source_id),
+                "w": width,
+                "h": height,
+                "quantity": quantity,
+                "rotatable": bool(part.get("rotatable", True)),
+                "shape": shape,
+                "holes": holes,
+                "base_area": base_area,
+                "holes_area": holes_area,
+                "net_area_approximation": approximation,
+                "material": material,
+                "grade": grade,
+                "thickness": thickness,
+            }
+        )
 
     stock_types = []
-    for st in job["stock"]:
-        stock_types.append({
-            "name": st.get("name", "Plate"),
-            "W": float(st["width"]), "H": float(st["height"]),
-            "thickness": float(st.get("thickness", s.get("thickness_in", 0.5))),
-            "qty": math.inf if st.get("unlimited") else int(st.get("qty", 1)),
-            "cost_per_lb": st.get("cost_per_lb"),
-            "cost_per_sheet": st.get("cost_per_sheet"),
-            "used": 0,
-        })
+    for index, stock in enumerate(job.get("stock", [])):
+        path = f"$.stock[{index}]"
+        width = number(stock.get("width"), f"{path}.width", positive=True)
+        height = number(stock.get("height"), f"{path}.height", positive=True)
+        thickness = number(
+            stock.get("thickness", default_thickness),
+            f"{path}.thickness",
+            positive=True,
+        )
+        material = stock.get("material", default_material)
+        grade = stock.get("grade", default_grade)
+        if not material or not grade or not finite_positive(thickness):
+            findings.append(
+                _validation_finding(
+                    "missing_material_basis",
+                    path,
+                    "Stock material, grade, and thickness must be explicit.",
+                )
+            )
+        unlimited = bool(stock.get("unlimited", False))
+        try:
+            quantity = math.inf if unlimited else int(stock.get("qty", 1))
+            quantity_valid = unlimited or (
+                quantity >= 0 and quantity == float(stock.get("qty", 1))
+            )
+        except (TypeError, ValueError):
+            quantity, quantity_valid = 0, False
+        if not quantity_valid:
+            findings.append(
+                _validation_finding(
+                    "invalid_stock_quantity",
+                    f"{path}.qty",
+                    "Stock quantity must be a non-negative integer or unlimited.",
+                )
+            )
+        per_pound = stock.get("cost_per_lb")
+        per_sheet = stock.get("cost_per_sheet")
+        if per_pound is not None and per_sheet is not None:
+            findings.append(
+                _validation_finding(
+                    "conflicting_cost_basis",
+                    path,
+                    "Use either cost_per_lb or cost_per_sheet for one stock entry, not both.",
+                )
+            )
+        for cost_field, value in (
+            ("cost_per_lb", per_pound),
+            ("cost_per_sheet", per_sheet),
+        ):
+            if value is not None:
+                parsed_cost = number(
+                    value, f"{path}.{cost_field}", nonnegative=True
+                )
+                if cost_field == "cost_per_lb":
+                    per_pound = parsed_cost
+                else:
+                    per_sheet = parsed_cost
+        stock_id = stock.get("stock_id") or (
+            "stock:"
+            + content_hash(
+                {
+                    "name": stock.get("name", "Plate"),
+                    "material": material,
+                    "grade": grade,
+                    "thickness": thickness,
+                    "width": width,
+                    "height": height,
+                }
+            )[:24]
+        )
+        stock_types.append(
+            {
+                "stock_id": stock_id,
+                "name": stock.get("name", "Plate"),
+                "material": material,
+                "grade": grade,
+                "W": width,
+                "H": height,
+                "thickness": thickness,
+                "qty": quantity,
+                "cost_per_lb": per_pound,
+                "cost_per_sheet": per_sheet,
+                "used": 0,
+            }
+        )
+    for collection_name, values, identity_field in (
+        ("parts", parts, "item_id"),
+        ("stock", stock_types, "stock_id"),
+    ):
+        seen = {}
+        for index, value in enumerate(values):
+            identity = value[identity_field]
+            if identity in seen:
+                findings.append(
+                    _validation_finding(
+                        f"duplicate_{identity_field}",
+                        f"$.{collection_name}[{index}].{identity_field}",
+                        (
+                            f"{identity_field} duplicates row {seen[identity]}; "
+                            "indistinguishable rows are not merged."
+                        ),
+                    )
+                )
+            else:
+                seen[identity] = index
+    parts.sort(key=lambda part: part["item_id"])
+    stock_types.sort(key=lambda stock: stock["stock_id"])
+    if not parts:
+        findings.append(
+            _validation_finding("missing_parts", "$.parts", "At least one part is required.")
+        )
+    if not stock_types:
+        findings.append(
+            _validation_finding("missing_stock", "$.stock", "At least one stock entry is required.")
+        )
+    normalized = {
+        "job_name": job.get("job_name", "Nesting job"),
+        "customer": job.get("customer", ""),
+        "project_id": project_id,
+        "revision_id": revision_id,
+        "estimate_input_hash": estimate_input_hash,
+        "unit_system": unit_system or "unspecified",
+        "settings": {
+            "kerf_in": kerf,
+            "part_gap_in": gap,
+            "edge_margin_in": margin,
+            "density_lb_in3": density,
+        },
+        "parts": parts,
+        "stock": [
+            {
+                key: ("unlimited" if key == "qty" and math.isinf(value) else value)
+                for key, value in stock.items()
+                if key != "used"
+            }
+            for stock in stock_types
+        ],
+    }
+    return normalized, stock_types, findings
 
+
+def _material_key(value):
+    return value.get("material"), value.get("grade"), value.get("thickness")
+
+
+def _aggregate_unplaced(units):
+    grouped = {}
+    for unit in units:
+        key = (unit["item_id"], unit["reason"])
+        row = grouped.setdefault(
+            key,
+            {
+                "item_id": unit["item_id"],
+                "label": unit["label"],
+                "quantity": 0,
+                "size": f'{_fmt(unit["w"])} x {_fmt(unit["h"])}',
+                "reason": unit["reason"],
+            },
+        )
+        row["quantity"] += 1
+    return sorted(grouped.values(), key=lambda row: (row["item_id"], row["reason"]))
+
+
+def run_job(job):
+    normalized, stock_types, validation_findings = normalize_job(job)
+    settings = normalized["settings"]
+    kerf = settings["kerf_in"]
+    gap = settings["part_gap_in"]
+    margin = settings["edge_margin_in"]
+    density = settings["density_lb_in3"]
+    spacing = kerf + gap
+    normalized_hash = sha256_bytes(canonical_json_bytes(normalized))
+    blockers = [
+        finding
+        for finding in validation_findings
+        if finding["severity"] == "error"
+    ]
+    if blockers:
+        return _summarize(
+            normalized,
+            [],
+            [],
+            density,
+            margin,
+            kerf,
+            gap,
+            validation_findings,
+            normalized_hash,
+        )
+
+    units = []
+    for part in normalized["parts"]:
+        item_instances = instance_ids(part["item_id"], part["quantity"])
+        item_placements = placement_ids(part["item_id"], part["quantity"])
+        for index in range(part["quantity"]):
+            units.append(
+                {
+                    **part,
+                    "part_id": part["item_id"],
+                    "instance_id": item_instances[index],
+                    "placement_id": item_placements[index],
+                }
+            )
+    units.sort(key=lambda unit: (-unit["w"] * unit["h"], unit["instance_id"]))
     plates = []
 
-    def open_plate(fit=None):
-        for stype in stock_types:
-            if stype["used"] >= stype["qty"]:
+    def compatible(stock, unit):
+        return _material_key(stock) == _material_key(unit)
+
+    def can_fit(stock, unit):
+        usable_width = stock["W"] - 2 * margin
+        usable_height = stock["H"] - 2 * margin
+        direct = unit["w"] <= usable_width + 1e-9 and unit["h"] <= usable_height + 1e-9
+        rotated = (
+            unit["rotatable"]
+            and unit["h"] <= usable_width + 1e-9
+            and unit["w"] <= usable_height + 1e-9
+        )
+        return compatible(stock, unit) and (direct or rotated)
+
+    def open_plate(unit):
+        for stock in stock_types:
+            if stock["used"] >= stock["qty"] or not can_fit(stock, unit):
                 continue
-            uw, uh = stype["W"] - 2 * margin, stype["H"] - 2 * margin
-            if fit is not None:
-                fw, fh = fit["w"] + spacing, fit["h"] + spacing
-                ok = (fw <= uw + 1e-9 and fh <= uh + 1e-9)
-                if fit["rotatable"]:
-                    ok = ok or (fh <= uw + 1e-9 and fw <= uh + 1e-9)
-                if not ok:
-                    continue
-            stype["used"] += 1
-            plates.append({"stock": stype, "bin": MaxRectsBin(uw, uh), "placements": []})
-            return plates[-1]
+            usable_width = stock["W"] - 2 * margin
+            usable_height = stock["H"] - 2 * margin
+            stock["used"] += 1
+            plate = {
+                "stock": stock,
+                "bin": MaxRectsBin(usable_width + spacing, usable_height + spacing),
+                "placements": [],
+            }
+            plates.append(plate)
+            return plate
         return None
 
-    def fits_any(u):
-        fw, fh = u["w"] + spacing, u["h"] + spacing
-        for stype in stock_types:
-            uw, uh = stype["W"] - 2 * margin, stype["H"] - 2 * margin
-            if (fw <= uw + 1e-9 and fh <= uh + 1e-9) or \
-               (u["rotatable"] and fh <= uw + 1e-9 and fw <= uh + 1e-9):
-                return True
-        return False
+    def commit(plate, unit, placement):
+        x, y, packed_width, packed_height, rotated = placement
+        plate["placements"].append(
+            Placement(
+                part_id=unit["part_id"],
+                source_id=unit["source_id"],
+                item_id=unit["item_id"],
+                instance_id=unit["instance_id"],
+                placement_id=unit["placement_id"],
+                stock_id=plate["stock"]["stock_id"],
+                label=unit["label"],
+                x=x,
+                y=y,
+                w=packed_width - spacing,
+                h=packed_height - spacing,
+                rotated=rotated,
+                shape=unit["shape"],
+                ow=unit["w"],
+                oh=unit["h"],
+                holes=unit["holes"],
+                base_area=unit["base_area"],
+                holes_area=unit["holes_area"],
+                material=unit["material"],
+                grade=unit["grade"],
+                thickness=unit["thickness"],
+            )
+        )
 
-    def commit(pl, u, res):
-        x, y, rw, rh, rot = res
-        pl["placements"].append(Placement(
-            u["part_id"], u["label"], x, y, rw - spacing, rh - spacing, rot,
-            u["shape"], u["w"], u["h"], u["holes"], u["base_area"], u["holes_area"]))
-
-    unplaced = []
-    for u in units:
-        if not fits_any(u):
-            unplaced.append(u)
+    unplaced_units = []
+    for unit in units:
+        compatible_stock = [
+            stock for stock in stock_types if can_fit(stock, unit)
+        ]
+        if not compatible_stock:
+            unplaced_units.append({**unit, "reason": "no_compatible_stock_fit"})
             continue
-        fw, fh = u["w"] + spacing, u["h"] + spacing
+        packed_width, packed_height = unit["w"] + spacing, unit["h"] + spacing
         placed = False
-        for pl in plates:
-            res = pl["bin"].insert(fw, fh, u["rotatable"])
-            if res:
-                commit(pl, u, res)
+        for plate in plates:
+            if not compatible(plate["stock"], unit):
+                continue
+            placement = plate["bin"].insert(
+                packed_width, packed_height, unit["rotatable"]
+            )
+            if placement:
+                commit(plate, unit, placement)
                 placed = True
                 break
         if not placed:
-            newpl = open_plate(fit=u)
-            if newpl is not None:
-                res = newpl["bin"].insert(fw, fh, u["rotatable"])
-                if res:
-                    commit(newpl, u, res)
+            plate = open_plate(unit)
+            if plate is not None:
+                placement = plate["bin"].insert(
+                    packed_width, packed_height, unit["rotatable"]
+                )
+                if placement:
+                    commit(plate, unit, placement)
                     placed = True
         if not placed:
-            unplaced.append(u)
+            unplaced_units.append({**unit, "reason": "stock_exhausted"})
 
-    used_plates = [pl for pl in plates if pl["placements"]]
-    for i, pl in enumerate(used_plates, 1):
-        pl["index"] = i
+    used_plates = [plate for plate in plates if plate["placements"]]
+    for index, plate in enumerate(used_plates, 1):
+        plate["index"] = index
+    return _summarize(
+        normalized,
+        used_plates,
+        _aggregate_unplaced(unplaced_units),
+        density,
+        margin,
+        kerf,
+        gap,
+        validation_findings,
+        normalized_hash,
+    )
 
-    return _summarize(job, used_plates, unplaced, density, margin, kerf, gap)
+
+def _metric(value, approximation):
+    return {"value": round(value, 1), "approximation": approximation}
 
 
-def _summarize(job, used_plates, unplaced, density, margin, kerf, gap):
+def _remnant_candidates(plate, margin, spacing):
+    stock = plate["stock"]
+    usable_width = stock["W"] - 2 * margin
+    usable_height = stock["H"] - 2 * margin
+    candidates = []
+    for free in plate["bin"].free:
+        width = max(0.0, min(free.w, usable_width - free.x))
+        height = max(0.0, min(free.h, usable_height - free.y))
+        if width > spacing and height > spacing:
+            candidates.append(
+                {
+                    "width": round(width, 2),
+                    "height": round(height, 2),
+                    "area": round(width * height, 2),
+                    "status": "candidate_unverified",
+                }
+            )
+    return sorted(
+        candidates, key=lambda candidate: candidate["area"], reverse=True
+    )[:3]
+
+
+def _summarize(
+    normalized,
+    used_plates,
+    unplaced,
+    density,
+    margin,
+    kerf,
+    gap,
+    validation_findings,
+    normalized_hash,
+):
+    estimate_input_hash = normalized.get("estimate_input_hash") or normalized_hash
     plate_reports = []
-    tot_plate_area = tot_part_area_bbox = 0.0
-    tot_plate_wt = tot_part_wt = 0.0
-    tot_cost = 0.0
-    cost_known = True
-    part_net = {}
+    total_plate_area = total_packing_area = total_net_area = 0.0
+    total_plate_weight = total_part_weight = 0.0
+    total_cost = 0.0
+    all_used_costs_known = bool(used_plates)
+    part_net_cost = {}
+    has_irregular = any(part["shape"] == "irregular" for part in normalized["parts"])
+    net_approximations = {
+        part["net_area_approximation"] for part in normalized["parts"]
+    }
+    net_approximation_by_item = {
+        part["item_id"]: part["net_area_approximation"]
+        for part in normalized["parts"]
+    }
 
-    for pl in used_plates:
-        stype = pl["stock"]
-        W, H, t = stype["W"], stype["H"], stype["thickness"]
-        plate_area = W * H
-        plate_wt = plate_area * t * density
-
-        p_area_bbox = p_wt = 0.0
-        n_holes = 0
+    for plate in used_plates:
+        stock = plate["stock"]
+        width, height, thickness = stock["W"], stock["H"], stock["thickness"]
+        plate_area = width * height
+        plate_weight = plate_area * thickness * density
+        packing_area = net_area_total = part_weight = 0.0
+        holes = 0
         parts_on = {}
-        for pc in pl["placements"]:
-            bbox = pc.w * pc.h
-            net_area = max(0.0, pc.base_area - pc.holes_area)
-            p_area_bbox += bbox
-            wt = net_area * t * density
-            p_wt += wt
-            n_holes += len(pc.holes)
-            parts_on[pc.label] = parts_on.get(pc.label, 0) + 1
-            if stype.get("cost_per_lb") is not None:
-                part_net[pc.label] = part_net.get(pc.label, 0.0) + wt * float(stype["cost_per_lb"])
+        for placement in plate["placements"]:
+            packing_area += placement.w * placement.h
+            net_area = max(0.0, placement.base_area - placement.holes_area)
+            net_area_total += net_area
+            weight = net_area * thickness * density
+            part_weight += weight
+            holes += len(placement.holes)
+            parts_on[placement.label] = parts_on.get(placement.label, 0) + 1
+            if stock["cost_per_lb"] is not None:
+                part_net_cost[placement.label] = (
+                    part_net_cost.get(placement.label, 0.0)
+                    + weight * stock["cost_per_lb"]
+                )
 
-        if stype.get("cost_per_sheet") is not None:
-            plate_cost = float(stype["cost_per_sheet"])
-        elif stype.get("cost_per_lb") is not None:
-            plate_cost = plate_wt * float(stype["cost_per_lb"])
+        if stock["cost_per_sheet"] is not None:
+            plate_cost = stock["cost_per_sheet"]
+            cost_basis = "per_sheet"
+        elif stock["cost_per_lb"] is not None:
+            plate_cost = plate_weight * stock["cost_per_lb"]
+            cost_basis = "per_pound"
         else:
             plate_cost = None
-            cost_known = False
-
-        lf = pl["bin"].largest_free()
-        remnant = (round(lf.w, 2), round(lf.h, 2)) if lf else None
-
-        plate_reports.append({
-            "index": pl["index"], "stock": stype["name"],
-            "size": f"{_fmt(W)} x {_fmt(H)} x {_fmt(t)}",
-            "W": W, "H": H, "thickness": t,
-            "parts": parts_on, "num_parts": len(pl["placements"]), "num_holes": n_holes,
-            "yield_pct": round(100 * p_area_bbox / plate_area, 1),
-            "plate_weight_lb": round(plate_wt, 1),
-            "part_weight_lb": round(p_wt, 1),
-            "scrap_weight_lb": round(plate_wt - p_wt, 1),
-            "plate_cost": None if plate_cost is None else round(plate_cost, 2),
-            "largest_remnant": remnant,
-            "placements": [vars(pc) for pc in pl["placements"]],
-        })
-
-        tot_plate_area += plate_area
-        tot_part_area_bbox += p_area_bbox
-        tot_plate_wt += plate_wt
-        tot_part_wt += p_wt
+            cost_basis = None
+            all_used_costs_known = False
         if plate_cost is not None:
-            tot_cost += plate_cost
+            total_cost += plate_cost
+        packing_approximation = "bounding_box" if any(
+            placement.shape == "irregular" for placement in plate["placements"]
+        ) else "exact"
+        plate_net_statuses = {
+            net_approximation_by_item[placement.item_id]
+            for placement in plate["placements"]
+        }
+        net_approximation = (
+            "exact"
+            if plate_net_statuses == {"exact"}
+            else (
+                "bounding_box_estimate"
+                if "bounding_box_estimate" in plate_net_statuses
+                else "declared_area"
+            )
+        )
+        report = {
+            "index": plate["index"],
+            "stock": stock["name"],
+            "stock_id": stock["stock_id"],
+            "material": stock["material"],
+            "grade": stock["grade"],
+            "size": f"{_fmt(width)} x {_fmt(height)} x {_fmt(thickness)}",
+            "W": width,
+            "H": height,
+            "thickness": thickness,
+            "parts": parts_on,
+            "num_parts": len(plate["placements"]),
+            "num_holes": holes,
+            "packing_utilization_pct": _metric(
+                100 * packing_area / plate_area, packing_approximation
+            ),
+            "net_material_yield_pct": _metric(
+                100 * net_area_total / plate_area, net_approximation
+            ),
+            "plate_weight_lb": round(plate_weight, 1),
+            "part_weight_lb": round(part_weight, 1),
+            "scrap_weight_lb": round(plate_weight - part_weight, 1),
+            "plate_cost": None if plate_cost is None else round(plate_cost, 2),
+            "cost_basis": cost_basis,
+            "remnant_candidates": _remnant_candidates(plate, margin, kerf + gap),
+            "placements": [vars(placement) for placement in plate["placements"]],
+        }
+        plate_reports.append(report)
+        total_plate_area += plate_area
+        total_packing_area += packing_area
+        total_net_area += net_area_total
+        total_plate_weight += plate_weight
+        total_part_weight += part_weight
 
-    overall_yield = round(100 * tot_part_area_bbox / tot_plate_area, 1) if tot_plate_area else 0.0
-
-    res = {
-        "meta": {
-            "job_name": job.get("job_name", "Nesting job"),
-            "customer": job.get("customer", ""),
-            "kerf_in": kerf, "part_gap_in": gap, "edge_margin_in": margin,
-            "density_lb_in3": density,
-        },
-        "plates_used": len(used_plates),
-        "overall_yield_pct": overall_yield,
-        "total_plate_weight_lb": round(tot_plate_wt, 1),
-        "total_part_weight_lb": round(tot_part_wt, 1),
-        "total_scrap_weight_lb": round(tot_plate_wt - tot_part_wt, 1),
-        "total_material_cost": None if not cost_known else round(tot_cost, 2),
-        "cost_known": cost_known,
-        "total_holes": sum(pr["num_holes"] for pr in plate_reports),
-        "part_net_cost": {k: round(v, 2) for k, v in part_net.items()},
-        "plate_reports": plate_reports,
-        "unplaced": [{"label": u["label"], "size": f'{_fmt(u["w"])} x {_fmt(u["h"])}'}
-                     for u in unplaced],
-        "has_irregular": any(p.get("shape") == "irregular" for p in job["parts"]),
+    if unplaced:
+        cost_status, cost_total = "incomplete_unplaced", None
+    elif all_used_costs_known:
+        cost_status, cost_total = "known", round(total_cost, 2)
+    else:
+        cost_status, cost_total = "not_provided", None
+    packing_status = "bounding_box" if has_irregular else "exact"
+    net_status = (
+        "bounding_box_estimate"
+        if "bounding_box_estimate" in net_approximations
+        else ("declared_area" if "declared_area" in net_approximations else "exact")
+    )
+    metrics = {
+        "packing_utilization_pct": _metric(
+            100 * total_packing_area / total_plate_area if total_plate_area else 0,
+            packing_status,
+        ),
+        "net_material_yield_pct": _metric(
+            100 * total_net_area / total_plate_area if total_plate_area else 0,
+            net_status,
+        ),
     }
-    res["rfq_nesting"] = rfq_nesting_block(res)
-    return res
+    verification_findings = verify_nest_placements(
+        plate_reports,
+        edge_margin=margin,
+        inter_part_clearance=kerf + gap,
+    )
+    invalid_holes = [
+        finding["message"]
+        for finding in validation_findings
+        if finding["code"] == "invalid_hole_geometry"
+    ]
+    blockers = [
+        finding
+        for finding in validation_findings
+        if finding["severity"] == "error"
+    ]
+    burn_warnings = []
+    if has_irregular:
+        burn_warnings.append(
+            "Irregular parts use approximate bounding boxes; burn DXFs are suppressed."
+        )
+    if unplaced:
+        burn_warnings.append(
+            f"{sum(row['quantity'] for row in unplaced)} required part(s) did not fit; "
+            "burn DXFs are suppressed."
+        )
+    burn_warnings.extend(invalid_holes)
+    burn_warnings.extend(finding["message"] for finding in verification_findings)
+    burn_warnings.extend(
+        finding["message"] for finding in blockers if finding["code"] != "invalid_hole_geometry"
+    )
+    if blockers or unplaced or verification_findings:
+        geometry_readiness = "diagnostic"
+    elif has_irregular:
+        geometry_readiness = "reference_only"
+    else:
+        geometry_readiness = "geometry_verified"
+
+    placements_by_group = defaultdict(list)
+    for plate in plate_reports:
+        for placement in plate["placements"]:
+            placements_by_group[
+                (
+                    placement["material"],
+                    placement["grade"],
+                    placement["thickness"],
+                )
+            ].append(placement)
+
+    groups = []
+    group_keys = sorted(
+        {_material_key(part) for part in normalized["parts"]}, key=repr
+    )
+    for material, grade, thickness in group_keys:
+        groups.append(
+            {
+                "group_id": "nest-group:"
+                + content_hash(
+                    {
+                        "material": material,
+                        "grade": grade,
+                        "thickness": thickness,
+                    }
+                )[:20],
+                "material": material,
+                "grade": grade,
+                "thickness": thickness,
+                "placements": placements_by_group[(material, grade, thickness)],
+            }
+        )
+    configuration_hash = sha256_bytes(
+        canonical_json_bytes(
+            {
+                "algorithm_version": NEST_ALGORITHM_VERSION,
+                "settings": normalized["settings"],
+                "clearance_contract": "edge-margin-and-inter-part-v1",
+            }
+        )
+    )
+    result = {
+        "schema_version": NEST_RESULT_VERSION,
+        "algorithm_version": NEST_ALGORITHM_VERSION,
+        "normalized_input_hash": normalized_hash,
+        "estimate_input_hash": estimate_input_hash,
+        "configuration_hash": configuration_hash,
+        "outcome": "blocked",
+        "package_status": "draft",
+        "meta": {
+            "job_name": normalized["job_name"],
+            "customer": normalized["customer"],
+            "project_id": normalized["project_id"],
+            "revision_id": normalized["revision_id"],
+            "kerf_in": kerf,
+            "part_gap_in": gap,
+            "edge_margin_in": margin,
+            "density_lb_in3": density,
+            "unit_system": normalized["unit_system"],
+        },
+        "clearance_contract": {
+            "edge_margin_ownership": "plate_to_part",
+            "inter_part_clearance_ownership": "kerf_plus_gap",
+            "trailing_clearance_required_at_plate_edge": False,
+        },
+        "groups": groups,
+        "plates_used": len(plate_reports),
+        "metrics": metrics,
+        "total_plate_weight_lb": round(total_plate_weight, 1),
+        "total_part_weight_lb": round(total_part_weight, 1),
+        "total_scrap_weight_lb": round(total_plate_weight - total_part_weight, 1),
+        "cost": {"status": cost_status, "total": cost_total},
+        "total_material_cost": cost_total,
+        "cost_known": cost_status == "known",
+        "total_holes": sum(report["num_holes"] for report in plate_reports),
+        "part_net_cost": {
+            key: round(value, 2) for key, value in part_net_cost.items()
+        },
+        "plate_reports": plate_reports,
+        "unplaced": unplaced,
+        "has_irregular": has_irregular,
+        "invalid_hole_warnings": invalid_holes,
+        "validation_findings": validation_findings,
+        "verification": {
+            "status": "verified" if not verification_findings else "failed",
+            "findings": verification_findings,
+        },
+        "geometry_readiness": geometry_readiness,
+        "burn_dxf_eligible": not burn_warnings,
+        "burn_dxf_warnings": burn_warnings,
+    }
+    result["rfq_nesting"] = rfq_nesting_block(result)
+    outcome, package_status, _ = stage_decision(result)
+    result["outcome"] = outcome
+    result["package_status"] = package_status
+    return result
 
 
 def _fmt(v):
@@ -386,34 +1097,78 @@ def _fmt(v):
 # RFQ hand-off block  (feeds steel-rfq "Nesting / Drop Reference" table)
 # --------------------------------------------------------------------------
 def rfq_nesting_block(res):
-    """Group plates by stock material -> Material | Nesting Plan | Drop Notes rows."""
-    from collections import defaultdict
+    """Build the versioned nest-to-RFQ handoff without merging stock variants."""
     groups = defaultdict(list)
     for pr in res["plate_reports"]:
-        groups[pr["stock"]].append(pr)
+        groups[
+            (
+                pr["stock_id"],
+                pr["material"],
+                pr["grade"],
+                pr["thickness"],
+                pr["W"],
+                pr["H"],
+            )
+        ].append(pr)
 
     blocks = []
-    for name, prs in groups.items():
+    for key, prs in sorted(groups.items(), key=lambda item: repr(item[0])):
+        stock_id, material, grade, thickness, width, height = key
         sheets = len(prs)
-        W, H = prs[0]["W"], prs[0]["H"]
-        pa = sum(pr["yield_pct"] / 100 * pr["W"] * pr["H"] for pr in prs)
-        ta = sum(pr["W"] * pr["H"] for pr in prs)
-        yld = round(100 * pa / ta, 1) if ta else 0.0
+        packing_area = sum(
+            pr["packing_utilization_pct"]["value"] / 100 * pr["W"] * pr["H"]
+            for pr in prs
+        )
+        total_area = sum(pr["W"] * pr["H"] for pr in prs)
+        utilization = round(100 * packing_area / total_area, 1) if total_area else 0.0
         parts = sum(pr["num_parts"] for pr in prs)
-        drops = sorted([pr["largest_remnant"] for pr in prs if pr["largest_remnant"]],
-                       key=lambda d: d[0] * d[1], reverse=True)[:3]
-        drop_txt = "; ".join(f"{_fmt(d[0])}x{_fmt(d[1])}" for d in drops) or "minimal"
-        cost = sum((pr["plate_cost"] or 0) for pr in prs)
+        candidates = sorted(
+            [
+                candidate
+                for pr in prs
+                for candidate in pr["remnant_candidates"]
+            ],
+            key=lambda candidate: candidate["area"],
+            reverse=True,
+        )[:3]
+        candidate_text = (
+            "; ".join(
+                f"{_fmt(candidate['width'])}x{_fmt(candidate['height'])}"
+                for candidate in candidates
+            )
+            or "none"
+        )
+        costs_known = all(pr["plate_cost"] is not None for pr in prs)
+        cost = sum(pr["plate_cost"] for pr in prs if pr["plate_cost"] is not None)
         blocks.append({
-            "material": name,
+            "stock_id": stock_id,
+            "stock_name": prs[0]["stock"],
+            "material": material,
+            "grade": grade,
+            "thickness": thickness,
             "sheets_needed": sheets,
-            "sheet_size": f"{_fmt(W)}x{_fmt(H)}",
-            "yield_pct": yld,
-            "nesting_plan": f"{sheets} x {_fmt(W)}x{_fmt(H)} sheet(s) - {yld}% yield, {parts} parts",
-            "drop_notes": f"Largest reusable drops: {drop_txt} in",
-            "total_cost": round(cost, 2) if res["cost_known"] else None,
+            "sheet_size": f"{_fmt(width)}x{_fmt(height)}",
+            "packing_utilization_pct": utilization,
+            "nesting_plan": (
+                f"{sheets} x {_fmt(width)}x{_fmt(height)} sheet(s) - "
+                f"{utilization}% packing utilization, {parts} parts"
+            ),
+            "drop_notes": (
+                f"Remnant candidates (not certified reusable): {candidate_text} in"
+            ),
+            "remnant_candidates": candidates,
+            "total_cost": round(cost, 2) if costs_known and not res["unplaced"] else None,
+            "geometry_readiness": res["geometry_readiness"],
         })
-    return blocks
+    return {
+        "schema_version": "1.0.0",
+        "source_nest_result_version": NEST_RESULT_VERSION,
+        "project_id": res["meta"]["project_id"],
+        "revision_id": res["meta"]["revision_id"],
+        "estimate_input_hash": res["estimate_input_hash"],
+        "geometry_readiness": res["geometry_readiness"],
+        "rows": blocks,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -429,7 +1184,16 @@ def render_text(res):
              f"Edge margin {m['edge_margin_in']}\"  |  {m['density_lb_in3']} lb/in^3")
     L.append("")
     L.append(f"  Plates used ............ {res['plates_used']}")
-    L.append(f"  Overall yield .......... {res['overall_yield_pct']}%")
+    packing = res["metrics"]["packing_utilization_pct"]
+    net_yield = res["metrics"]["net_material_yield_pct"]
+    L.append(
+        f"  Packing utilization ... {packing['value']}% "
+        f"({packing['approximation']})"
+    )
+    L.append(
+        f"  Net material yield .... {net_yield['value']}% "
+        f"({net_yield['approximation']})"
+    )
     L.append(f"  Holes / cutouts ........ {res['total_holes']}")
     L.append(f"  Total plate weight ..... {res['total_plate_weight_lb']} lb")
     L.append(f"  Net part weight ........ {res['total_part_weight_lb']} lb  (holes removed)")
@@ -445,14 +1209,20 @@ def render_text(res):
         L.append(f"  PLATE {pr['index']} — {pr['stock']}  ({pr['size']} in)")
         L.append(f"    Parts:   {parts_str}")
         L.append(f"    Holes:   {pr['num_holes']}")
-        L.append(f"    Yield:   {pr['yield_pct']}%   "
-                 f"Part wt {pr['part_weight_lb']} lb / plate {pr['plate_weight_lb']} lb   "
-                 f"Scrap {pr['scrap_weight_lb']} lb")
+        L.append(
+            f"    Packing: {pr['packing_utilization_pct']['value']}%   "
+            f"Net yield {pr['net_material_yield_pct']['value']}%   "
+            f"Part wt {pr['part_weight_lb']} lb / plate "
+            f"{pr['plate_weight_lb']} lb   Scrap {pr['scrap_weight_lb']} lb"
+        )
         if pr["plate_cost"] is not None:
             L.append(f"    Cost:    ${pr['plate_cost']:,.2f}")
-        if pr["largest_remnant"]:
-            rw, rh = pr["largest_remnant"]
-            L.append(f"    Biggest usable drop: {_fmt(rw)} x {_fmt(rh)} in")
+        if pr["remnant_candidates"]:
+            candidate = pr["remnant_candidates"][0]
+            L.append(
+                "    Largest remnant candidate (not certified): "
+                f"{_fmt(candidate['width'])} x {_fmt(candidate['height'])} in"
+            )
         L.append("")
     if res["part_net_cost"]:
         L.append("  Net material cost per part (metal in part, before markup):")
@@ -463,11 +1233,20 @@ def render_text(res):
         L.append("  " + "!" * 60)
         L.append("  DID NOT FIT (need more/larger stock):")
         for u in res["unplaced"]:
-            L.append(f"    - {u['label']}  ({u['size']} in)")
+            L.append(
+                f"    - {u['label']} x{u['quantity']} "
+                f"({u['size']} in; {u['reason']})"
+            )
         L.append("")
     if res["has_irregular"]:
         L.append("  NOTE: irregular parts are nested by BOUNDING BOX. Supply a")
         L.append("  true `area` per irregular part for exact weight/cost.")
+    if res["burn_dxf_warnings"]:
+        L.append("")
+        L.append("  BURN DXF SUPPRESSED:")
+        for warning in res["burn_dxf_warnings"]:
+            L.append(f"    - {warning}")
+        L.append("  Reference layouts are estimating aids, not cutting instructions.")
     L.append("=" * 64)
     return "\n".join(L)
 
@@ -520,7 +1299,8 @@ def render_layout(res, outdir):
             ax.set_ylim(-1, H + 1)
             ax.set_aspect("equal")
             ax.set_title(f"PLATE {pr['index']} — {pr['stock']}  ({pr['size']} in)   "
-                         f"Yield {pr['yield_pct']}%   Holes {pr['num_holes']}",
+                         f"Packing {pr['packing_utilization_pct']['value']}%   "
+                         f"Holes {pr['num_holes']}",
                          fontsize=12, fontweight="bold")
             ax.set_xlabel("inches")
             ax.grid(True, lw=0.3, color="#eee")
@@ -540,14 +1320,17 @@ def render_layout(res, outdir):
 
 
 # --------------------------------------------------------------------------
-# DXF: overview (all plates) + one burn file per sheet
+# DXF: clearly separated reference and geometry-verified burn files
 # --------------------------------------------------------------------------
 def _draw_part_dxf(msp, pc, x0, y0, profile_layer, holes_layer, notes_layer, label=True):
     import ezdxf
     x, y = x0 + pc["x"], y0 + pc["y"]
     w, h = pc["w"], pc["h"]
-    msp.add_lwpolyline([(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)],
-                       dxfattribs={"layer": profile_layer, "closed": True})
+    msp.add_lwpolyline(
+        [(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
+        close=True,
+        dxfattribs={"layer": profile_layer},
+    )
     for hole in pc.get("holes", []):
         lx, ly = hole_local(pc, hole)
         cx, cy = x + lx, y + ly
@@ -558,39 +1341,87 @@ def _draw_part_dxf(msp, pc, x0, y0, profile_layer, holes_layer, notes_layer, lab
             if pc["rotated"]:
                 hw, hh = hh, hw
             msp.add_lwpolyline(
-                [(cx - hw / 2, cy - hh / 2), (cx + hw / 2, cy - hh / 2),
-                 (cx + hw / 2, cy + hh / 2), (cx - hw / 2, cy + hh / 2), (cx - hw / 2, cy - hh / 2)],
-                dxfattribs={"layer": holes_layer, "closed": True})
-    if label:
+                [
+                    (cx - hw / 2, cy - hh / 2),
+                    (cx + hw / 2, cy - hh / 2),
+                    (cx + hw / 2, cy + hh / 2),
+                    (cx - hw / 2, cy + hh / 2),
+                ],
+                close=True,
+                dxfattribs={"layer": holes_layer},
+            )
+    if label and notes_layer:
         msp.add_text(pc["label"], height=min(1.0, max(0.25, min(w, h) * 0.18)),
                      dxfattribs={"layer": notes_layer}).set_placement(
             (x + w / 2, y + h / 2), align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER)
 
 
 def render_dxf_overview(res, outdir):
+    """Write one explicitly reference-only overview with bounding-box outlines."""
     import ezdxf
     margin = res["meta"]["edge_margin_in"]
     doc = ezdxf.new("R2010")
     doc.units = ezdxf.units.IN
     msp = doc.modelspace()
-    for lyr, col in [("PLATE", 5), ("PROFILE", 3), ("HOLES", 1), ("NOTES", 7)]:
+    for lyr, col in [("PLATE", 5), ("BOUNDS", 2), ("HOLES", 1), ("NOTES", 7)]:
         if lyr not in doc.layers:
             doc.layers.add(lyr, color=col)
     x_off = 0.0
     for pr in res["plate_reports"]:
         W, H = pr["W"], pr["H"]
-        msp.add_lwpolyline([(x_off, 0), (x_off + W, 0), (x_off + W, H), (x_off, H), (x_off, 0)],
-                           dxfattribs={"layer": "PLATE", "closed": True})
+        msp.add_lwpolyline(
+            [(x_off, 0), (x_off + W, 0), (x_off + W, H), (x_off, H)],
+            close=True,
+            dxfattribs={"layer": "PLATE"},
+        )
         for pc in pr["placements"]:
-            _draw_part_dxf(msp, pc, x_off + margin, margin, "PROFILE", "HOLES", "NOTES")
+            _draw_part_dxf(
+                msp, pc, x_off + margin, margin, "BOUNDS", "HOLES", "NOTES"
+            )
         x_off += W + 10.0
-    path = os.path.join(outdir, "nest.dxf")
+    path = os.path.join(outdir, "reference_nest.dxf")
     doc.saveas(path)
     return path
 
 
+def render_reference_plate_dxfs(res, outdir):
+    """Write one clearly named reference-only DXF per used plate."""
+    import ezdxf
+
+    margin = res["meta"]["edge_margin_in"]
+    paths = []
+    for pr in res["plate_reports"]:
+        doc = ezdxf.new("R2010")
+        doc.units = ezdxf.units.IN
+        msp = doc.modelspace()
+        for layer, color in [
+            ("PLATE", 5),
+            ("BOUNDS", 2),
+            ("HOLES", 1),
+            ("NOTES", 7),
+        ]:
+            doc.layers.add(layer, color=color)
+        width, height = pr["W"], pr["H"]
+        msp.add_lwpolyline(
+            [(0, 0), (width, 0), (width, height), (0, height)],
+            close=True,
+            dxfattribs={"layer": "PLATE"},
+        )
+        for placement in pr["placements"]:
+            _draw_part_dxf(
+                msp, placement, margin, margin, "BOUNDS", "HOLES", "NOTES"
+            )
+        path = os.path.join(outdir, f"reference_plate_{pr['index']}.dxf")
+        doc.saveas(path)
+        paths.append(path)
+    return paths
+
+
 def render_burn_dxfs(res, outdir):
-    """One DXF per sheet for the burn table. Origin at sheet corner."""
+    """Write cut-geometry-only DXFs for a fully verified rectangular nest."""
+    if not res.get("burn_dxf_eligible", False):
+        return []
+
     import ezdxf
     margin = res["meta"]["edge_margin_in"]
     paths = []
@@ -598,55 +1429,250 @@ def render_burn_dxfs(res, outdir):
         doc = ezdxf.new("R2010")
         doc.units = ezdxf.units.IN
         msp = doc.modelspace()
-        for lyr, col in [("PLATE", 5), ("PROFILE", 3), ("HOLES", 1), ("NOTES", 7)]:
+        for lyr, col in [("PROFILE", 3), ("HOLES", 1)]:
             doc.layers.add(lyr, color=col)
-        W, H = pr["W"], pr["H"]
-        # sheet outline for reference (delete on the table if not wanted)
-        msp.add_lwpolyline([(0, 0), (W, 0), (W, H), (0, H), (0, 0)],
-                           dxfattribs={"layer": "PLATE", "closed": True})
         for pc in pr["placements"]:
-            _draw_part_dxf(msp, pc, margin, margin, "PROFILE", "HOLES", "NOTES")
+            _draw_part_dxf(
+                msp, pc, margin, margin, "PROFILE", "HOLES", None, label=False
+            )
         path = os.path.join(outdir, f"burn_plate_{pr['index']}.dxf")
         doc.saveas(path)
         paths.append(path)
     return paths
 
 
+def stage_decision(res, geometry_verified_only=False):
+    """Map the independently verified result onto the shared stage contract."""
+    findings = list(res.get("validation_findings", []))
+    findings.extend(
+        {**finding, "severity": "error"}
+        for finding in res.get("verification", {}).get("findings", [])
+    )
+    if res["unplaced"]:
+        findings.append({
+            "code": "UNPLACED_PARTS",
+            "severity": "error",
+            "path": "$.unplaced",
+            "message": (
+                f"{sum(row['quantity'] for row in res['unplaced'])} "
+                "required part(s) remain unplaced."
+            ),
+        })
+
+    if any(finding["severity"] == "error" for finding in findings):
+        outcome = "blocked"
+        package_status = "nested_partial" if res["unplaced"] else "draft"
+    elif res["has_irregular"]:
+        outcome = "review_required"
+        package_status = "review_required"
+        findings.append({
+            "code": "APPROXIMATE_PROFILE_GEOMETRY",
+            "severity": "warning",
+            "path": "$.groups",
+            "message": (
+                "Irregular profiles are represented by bounding boxes in "
+                "reference-only artifacts."
+            ),
+        })
+    else:
+        outcome = "ready"
+        package_status = "nest_verified"
+
+    if geometry_verified_only and outcome != "ready":
+        findings.append({
+            "code": "GEOMETRY_VERIFIED_REQUIRED",
+            "severity": "error",
+            "path": "$.geometry_readiness",
+            "message": "The requested geometry-verified output is unavailable.",
+        })
+
+    return outcome, package_status, findings
+
+
+def missing_render_dependencies():
+    """Return optional render modules unavailable to this interpreter."""
+    modules = ("ezdxf", "matplotlib", "numpy")
+    return [name for name in modules if importlib.util.find_spec(name) is None]
+
+
+def publish_nest_run(job, args):
+    """Run a legacy nest job and publish one isolated, manifested artifact set."""
+    result = run_job(job)
+    missing_dependencies = [] if args.no_render else missing_render_dependencies()
+    if missing_dependencies:
+        outcome = "dependency_missing"
+        package_status = "draft"
+        findings = [{
+            "code": "RENDER_DEPENDENCY_MISSING",
+            "severity": "error",
+            "message": (
+                "Rendering requires the missing module(s): "
+                + ", ".join(missing_dependencies)
+            ),
+        }]
+    else:
+        outcome, package_status, findings = stage_decision(
+            result, args.geometry_verified_only
+        )
+    result["outcome"] = outcome
+    result["run_outcome"] = outcome
+    result["package_status"] = package_status
+    report = render_text(result)
+
+    configuration = {
+        "algorithm_version": NEST_ALGORITHM_VERSION,
+        "engine_configuration_hash": result["configuration_hash"],
+        "geometry_verified_only": args.geometry_verified_only,
+        "render": not args.no_render,
+    }
+    publication_configuration_hash = sha256_bytes(
+        canonical_json_bytes(configuration)
+    )
+    approximations = []
+    if result["has_irregular"]:
+        approximations.append({
+            "code": "BOUNDING_BOX_NESTING",
+            "message": "One or more irregular profiles use bounding-box placement.",
+        })
+    qa_report = {
+        "schema_version": "1.0.0",
+        "stage": "steel-nest",
+        "run_outcome": outcome,
+        "package_status": package_status,
+        "geometry_readiness": result["geometry_readiness"],
+        "geometry_verified_only_requested": args.geometry_verified_only,
+        "findings": findings,
+    }
+
+    with RunPublisher(
+        args.out,
+        stage="steel-nest",
+        run_outcome=outcome,
+        package_status=package_status,
+        input_hash=result["normalized_input_hash"],
+        configuration_hash=publication_configuration_hash,
+        schema_versions={
+            "run_manifest": "1.0.0",
+            "nest_result": NEST_RESULT_VERSION,
+            "rfq_nesting": "1.0.0",
+        },
+        tool_versions={
+            "pi_steel": package_version(__file__),
+            "nest_algorithm": NEST_ALGORITHM_VERSION,
+        },
+        explicit_dates={},
+        warnings=result["burn_dxf_warnings"]
+        + [finding["message"] for finding in findings if finding["severity"] == "error"],
+        approximations=approximations,
+        run_id=args.run_id,
+    ) as publisher:
+        publisher.write_qa_report(qa_report)
+        publisher.write_bytes(
+            "report.txt",
+            report.encode("utf-8"),
+            readiness="diagnostic",
+            media_type="text/plain",
+        )
+        publisher.write_json("result.json", result, readiness="diagnostic")
+        if outcome in {"ready", "review_required"}:
+            publisher.write_json(
+                "rfq_nesting.json", result["rfq_nesting"], readiness="diagnostic"
+            )
+
+        if not args.no_render and not missing_dependencies:
+            publisher.register_artifact(
+                "layout.pdf", readiness="reference_only", media_type="application/pdf"
+            )
+            for plate in result["plate_reports"]:
+                publisher.register_artifact(
+                    f"plate_{plate['index']}.png",
+                    readiness="reference_only",
+                    media_type="image/png",
+                )
+            render_layout(result, publisher.staging_path)
+
+            if result["plate_reports"]:
+                publisher.register_artifact(
+                    "reference_nest.dxf",
+                    readiness="reference_only",
+                    media_type="image/vnd.dxf",
+                )
+                for plate in result["plate_reports"]:
+                    publisher.register_artifact(
+                        f"reference_plate_{plate['index']}.dxf",
+                        readiness="reference_only",
+                        media_type="image/vnd.dxf",
+                    )
+                render_dxf_overview(result, publisher.staging_path)
+                render_reference_plate_dxfs(result, publisher.staging_path)
+
+            if outcome == "ready":
+                for plate in result["plate_reports"]:
+                    publisher.register_artifact(
+                        f"burn_plate_{plate['index']}.dxf",
+                        readiness="geometry_verified",
+                        media_type="image/vnd.dxf",
+                    )
+                render_burn_dxfs(result, publisher.staging_path)
+
+        final_path = publisher.publish()
+
+    return result, qa_report, report, final_path
+
+
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
-def main():
-    ap = argparse.ArgumentParser(description="Steel plate nesting engine")
+def main(argv=None):
+    ap = StageArgumentParser(description="Steel plate nesting engine")
+    ap.configure_failure_diagnostics(
+        stage="steel-nest",
+        entry_file=__file__,
+        input_option="--job",
+    )
     ap.add_argument("--job", required=True)
-    ap.add_argument("--out", default="out")
+    ap.add_argument(
+        "--out",
+        default="outputs",
+        help="Publication root; each invocation writes an isolated runs/<run-id>/",
+    )
     ap.add_argument("--no-render", action="store_true", help="Skip PDF/PNG/DXF")
-    args = ap.parse_args()
+    ap.add_argument(
+        "--geometry-verified-only",
+        action="store_true",
+        help="Require geometry-verified output; unresolved jobs still publish QA",
+    )
+    ap.add_argument("--run-id", help=argparse.SUPPRESS)
+    args = ap.parse_args(argv)
 
-    with open(args.job) as f:
-        job = json.load(f)
-    os.makedirs(args.out, exist_ok=True)
-
-    res = run_job(job)
-
-    report = render_text(res)
+    try:
+        with open(args.job, encoding="utf-8") as f:
+            job = json.load(f)
+        result, qa_report, report, final_path = publish_nest_run(job, args)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        diagnostic_path = publish_failure_diagnostic(
+            args.out,
+            stage="steel-nest",
+            input_path=args.job,
+            error=exc,
+            tool_version=package_version(__file__),
+            run_id=args.run_id,
+        )
+        suffix = (
+            f"; diagnostic published: {diagnostic_path}"
+            if diagnostic_path is not None
+            else "; diagnostic publication unavailable"
+        )
+        print(f"Nesting failed: {exc}{suffix}", file=sys.stderr)
+        return 1
     print(report)
-    with open(os.path.join(args.out, "report.txt"), "w") as f:
-        f.write(report)
-    with open(os.path.join(args.out, "result.json"), "w") as f:
-        json.dump(res, f, indent=2)
-    with open(os.path.join(args.out, "rfq_nesting.json"), "w") as f:
-        json.dump(res["rfq_nesting"], f, indent=2)
-
-    if not args.no_render:
-        pdf, pngs = render_layout(res, args.out)
-        overview = render_dxf_overview(res, args.out)
-        burns = render_burn_dxfs(res, args.out)
-        print(f"\nWrote: {pdf}")
-        print(f"       {overview}  (overview)")
-        for b in burns:
-            print(f"       {b}  (burn table — one per sheet)")
-        print(f"       {len(pngs)} PNG(s), report.txt, result.json, rfq_nesting.json")
+    print(f"\nPublished {qa_report['run_outcome']} run: {final_path}")
+    if result["burn_dxf_warnings"]:
+        print("Burn DXFs suppressed:")
+        for warning in result["burn_dxf_warnings"]:
+            print(f"  - {warning}")
+    return outcome_exit_code(qa_report["run_outcome"])
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

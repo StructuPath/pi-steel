@@ -1,0 +1,20 @@
+{
+  "projection_format": "1.0.0",
+  "semantic_sha256": "f58a92fcaf25db8b4d7354fb20090358648bc1b73251c5756887a5aed2e13c53",
+  "sheets": [
+    {
+      "title": "RFQ Draft",
+      "max_row": 26,
+      "max_column": 14,
+      "cell_count": 97,
+      "style_count": 25
+    },
+    {
+      "title": "RFQ Metadata",
+      "max_row": 11,
+      "max_column": 2,
+      "cell_count": 22,
+      "style_count": 1
+    }
+  ]
+}

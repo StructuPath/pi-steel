@@ -1,0 +1,17 @@
+**/__pycache__/
+**/*.pyc
+**/company-profile.json
+.pi-steel/
+private/
+local-data/
+customer-data/
+vendor-data/
+outputs/
+out/
+*.local.json
+*.private.json
+*.xlsx
+*.xls
+*.pdf
+*.dxf
+*.png

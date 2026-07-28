@@ -1,0 +1,33 @@
+{
+  "job_name": "SYNTHETIC-IRREGULAR-REFERENCE",
+  "customer": "Example Customer",
+  "material": "carbon_steel",
+  "grade": "A36",
+  "unit_system": "imperial",
+  "settings": {
+    "kerf_in": 0.06,
+    "part_gap_in": 0.25,
+    "edge_margin_in": 0.5,
+    "density_lb_in3": 0.2836,
+    "thickness_in": 0.5
+  },
+  "stock": [
+    {
+      "name": "Synthetic A36 Plate",
+      "width": 24,
+      "height": 24,
+      "thickness": 0.5,
+      "qty": 1
+    }
+  ],
+  "parts": [
+    {
+      "name": "Synthetic Irregular Gusset",
+      "width": 8,
+      "height": 6,
+      "qty": 1,
+      "shape": "irregular",
+      "area": 24
+    }
+  ]
+}

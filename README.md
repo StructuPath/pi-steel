@@ -1,8 +1,8 @@
 # pi-steel
 
-Structural steel estimating skills for the [Pi coding agent](https://pi.dev) — built by working steel estimators, not by people guessing what a takeoff is.
+Structural steel estimating skills for the [Pi coding agent](https://pi.dev).
 
-By [StructuPath](https://structupath.ai), from the team behind a production structural-steel fabrication shop in Denver, CO.
+By [StructuPath](https://structupath.ai).
 
 ## Install
 
@@ -17,7 +17,7 @@ pi install npm:@structupath/pi-steel
 Structural steel quantity takeoff with a bundled **AISC 16th Edition shapes database (477 shapes)** — W, HSS, angles, channels, pipe — plus scripts the agent runs directly:
 
 - `lookup-member.sh` — full property set for any AISC designation (`W14X30` → plf, d, bf, A, Ix, Sx, …)
-- `calculate-weight.sh` — BOM totals with connection and misc-steel allowances, tonnage, cost sensitivity
+- `calculate-weight.sh` — BOM weight totals with connection and misc-steel allowances and tonnage; it does not invent pricing
 - `validate-bom.py` — catches invalid designations, wrong grades, duplicate marks, unreasonable weights
 
 Also includes reference guides for AISC shape families, takeoff procedures with worked examples, connection types and hardware weights, material grades, and bolt capacities.
@@ -28,11 +28,17 @@ Ask your agent things like:
 > "What's the lightest W-shape with depth ≥ 18" and Ix ≥ 1000?"
 > "Total tonnage on this BOM with 12% connections"
 
-### `steel-nest` — plate nesting & burn-table DXF
+### `steel-nest` — plate nesting & guarded DXF output
 
-The plate-layout step CAM software does, minus the CAM seat: MaxRects bin-packing of parts onto stock plates with kerf/gap/edge-margin spacing, holes and rectangular cutouts, yield/scrap/reusable-drop numbers, and material cost. Outputs a labeled layout (PDF + PNG per plate), a cut list, and **one DXF per sheet for the burn table** (part outlines on `PROFILE`, holes on `HOLES`, origin at sheet corner — ready for ProNest/FastCAM/SigmaNEST import).
+The plate-layout step CAM software does, minus the CAM seat: MaxRects bin-packing of parts onto stock plates with kerf/gap/edge-margin spacing, holes and rectangular cutouts, yield/scrap/reusable-drop numbers, and material cost. Outputs include a labeled layout (PDF + PNG per plate), a cut list, and an explicitly named all-sheets reference DXF.
 
-Honest about its limits: rectangular parts nest exactly; irregular parts nest by bounding box (flagged, never hidden); it deliberately does **not** emit G-code — kerf comp, lead-ins, and pierce points belong to your table's real post-processor.
+Per-sheet `burn_plate_N.dxf` files are emitted only for a complete rectangular nest whose supported holes remain inside their parts. Those files contain cut entities only: closed outlines on `PROFILE` and holes/cutouts on `HOLES`. Sheet outlines and labels remain in clearly named reference files. Any irregular part, unplaced part, or out-of-bounds hole suppresses burn DXFs for the whole job and leaves the safe estimating/reference artifacts available with an explicit warning.
+
+Honest about its limits: rectangular parts nest exactly; irregular parts nest by bounding box (flagged, never hidden); reference DXFs are not cutting instructions; and the package deliberately does **not** emit G-code. Kerf compensation, lead-ins, pierce points, and machine-specific verification belong to the table's real CAM and post-processor.
+
+Each command publishes an isolated run under the requested output root and updates
+`latest-run.json`. Exit `0` is geometry-verified, `2` requires review, and `3` is
+blocked. No named CAM compatibility is claimed.
 
 > "How many sheets does this job need?"
 > "Nest these parts on 96×48 plate and give me the yield"
@@ -44,11 +50,20 @@ Requires `ezdxf`, `matplotlib`, `numpy` (`pip install ezdxf matplotlib numpy`).
 
 Turns a steel estimate/takeoff spreadsheet into a standardized vendor RFQ (.xlsx): materials grouped the way vendors stock them (W-shapes / plate / flat bar), yellow fill-in pricing columns, nesting/drop reference, and terms & conditions — branded with **your** company profile. When `steel-nest` has run for the job, its cutting plan flows straight into the RFQ's nesting table.
 
-The three skills chain into a full estimating pipeline: **takeoff → nest → RFQ**.
+The `steel-estimate` orchestrator chains the skills into a review-gated estimating
+pipeline: **takeoff → nest → draft RFQ**. It publishes immutable run directories,
+QA findings, lineage, and readiness labels; blocked runs never contain a workbook.
 
-One-time setup: copy `skills/steel-rfq/assets/company-profile.example.json` to `company-profile.json` and put in your company name, city, and payment terms. The skill will ask and offer to save it if you skip this.
+One-time setup: copy `skills/steel-rfq/assets/company-profile.example.json` to the
+ignored path `.pi-steel/company-profile.json` in your project and enter approved
+company and commercial information there. Never add the completed profile to this
+repository.
 
-> "Send this takeoff out for pricing"
+Keep company profiles, customer files, vendor information, live pricing, and generated
+artifacts outside this repository. Public examples are synthetic and must follow
+[`PUBLIC_DATA_POLICY.md`](PUBLIC_DATA_POLICY.md).
+
+> "Prepare a draft RFQ from this takeoff"
 > "Generate an RFQ from this estimate"
 
 ## Requirements
@@ -56,9 +71,29 @@ One-time setup: copy `skills/steel-rfq/assets/company-profile.example.json` to `
 - `jq` and `python3` (with `pandas` + `openpyxl` for RFQ generation)
 - macOS or Linux
 
+## Development and release checks
+
+```bash
+npm test                 # base, no-render suite
+npm run test:full        # optional PDF/PNG/DXF/LibreOffice smoke tests
+npm run privacy:check    # public-repository data guard
+npm run privacy:history  # redacted audit of every reachable commit
+npm run pack:check       # npm contents plus unpacked-runtime smoke test
+npm run provenance:check # shape-data integrity and recorded decision
+npm run release:check    # complete release gate
+```
+
+`release:check` is intentionally blocked while redistribution permission for the
+checked-in transformed AISC shape dataset remains unverified. See
+[`DATA_PROVENANCE.md`](DATA_PROVENANCE.md). Do not publish a new package release
+by bypassing that gate.
+
 ## License
 
-MIT. AISC shape data derived from the publicly available AISC Shapes Database v16.0.
+StructuPath-authored code and documentation are MIT licensed. That license does
+not grant rights in third-party data. The checked-in AISC-derived shape data has
+a separate, currently blocked redistribution decision documented in
+[`DATA_PROVENANCE.md`](DATA_PROVENANCE.md).
 
 ---
 

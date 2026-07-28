@@ -30,6 +30,21 @@
   "engines": {
     "node": ">=20.6.0"
   },
+  "scripts": {
+    "doctor": "python3 scripts/doctor.py",
+    "lint": "ruff check skills scripts tests",
+    "test": "python3 -m pytest -m 'not full_render'",
+    "test:contracts": "python3 -m pytest tests/test_contracts.py tests/test_run_manifests.py tests/test_rfq_workbook_contract.py",
+    "test:full": "python3 -m pytest -m full_render",
+    "test:runtime": "python3 -m pytest tests/test_runtime_bootstrap.py tests/test_run_manifests.py tests/test_installed_scripts.py",
+    "privacy:check": "python3 scripts/check-public-data.py",
+    "privacy:history": "python3 scripts/check-public-data.py --history",
+    "provenance:check": "python3 scripts/check-data-provenance.py",
+    "pack:check": "python3 -m pytest tests/test_package_contents.py tests/test_installed_scripts.py",
+    "pack:dry-run": "npm pack --dry-run",
+    "release:check": "npm test && npm run privacy:check && npm run pack:check && python3 scripts/check-data-provenance.py --release",
+    "prepublishOnly": "npm run release:check"
+  },
   "pi": {
     "skills": [
       "./skills"
@@ -37,7 +52,21 @@
   },
   "files": [
     "skills",
+    "!skills/**/__pycache__",
+    "!skills/**/*.pyc",
+    "!skills/**/company-profile.json",
+    "scripts/doctor.py",
+    "scripts/check-public-data.py",
+    "scripts/check-data-provenance.py",
+    "pyproject.toml",
+    "requirements.txt",
+    "requirements-tested.txt",
+    "requirements-dev.txt",
+    "requirements-render.txt",
+    "DATA_PROVENANCE.md",
+    "DATA_PROVENANCE.json",
     "README.md",
+    "PUBLIC_DATA_POLICY.md",
     "LICENSE"
   ]
 }

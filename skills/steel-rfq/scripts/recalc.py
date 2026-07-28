@@ -21,14 +21,23 @@ import sys
 import tempfile
 
 
+class RecalculationError(RuntimeError):
+    """Raised when recalculate-on-open cannot be recorded safely."""
+
+
 def flag_recalc_on_load(path):
     import openpyxl
-    wb = openpyxl.load_workbook(path)
+
     try:
+        wb = openpyxl.load_workbook(path)
         wb.calculation.fullCalcOnLoad = True
-    except Exception:
-        pass  # older openpyxl — the LibreOffice bake below still fixes values
-    wb.save(path)
+        wb.calculation.forceFullCalc = True
+        wb.calculation.calcMode = "auto"
+        wb.save(path)
+    except Exception as exc:
+        raise RecalculationError(
+            f"could not record recalculate-on-open state for {path}: {exc}"
+        ) from exc
 
 
 def libreoffice_bake(path):
@@ -52,22 +61,36 @@ def libreoffice_bake(path):
     return False
 
 
+def recalculate(path, *, bake=True):
+    """Set recalc-on-open and return an honest cache status."""
+    flag_recalc_on_load(path)
+    if bake and libreoffice_bake(path):
+        return "baked_via_libreoffice"
+    return "deferred_recalculate_on_open"
+
+
 def main():
     if len(sys.argv) < 2:
-        sys.exit("usage: python3 recalc.py <workbook.xlsx>")
+        print("usage: python3 recalc.py <workbook.xlsx>", file=sys.stderr)
+        return 1
     path = sys.argv[1]
     if not os.path.exists(path):
-        sys.exit(f"file not found: {path}")
+        print(f"file not found: {path}", file=sys.stderr)
+        return 1
     # Set recalc-on-open FIRST so LibreOffice honors it, then bake. Do NOT
     # reload with openpyxl afterward — that would strip the cached values
     # LibreOffice just computed.
-    flag_recalc_on_load(path)
-    baked = libreoffice_bake(path)
-    if baked:
+    try:
+        status = recalculate(path)
+    except RecalculationError as exc:
+        print(f"recalc: failed — {exc}", file=sys.stderr)
+        return 1
+    if status == "baked_via_libreoffice":
         print(f"recalc: values computed and baked via LibreOffice — {path}")
     else:
         print(f"recalc: recalc-on-open set (open in Excel to compute values) — {path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

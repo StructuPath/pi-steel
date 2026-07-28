@@ -1,0 +1,32 @@
+{
+  "job_name": "SYNTHETIC-CONTRACT-NEST",
+  "customer": "Example Customer",
+  "material": "carbon_steel",
+  "grade": "A36",
+  "unit_system": "imperial",
+  "settings": {
+    "thickness_in": 0.5,
+    "kerf_in": 0.06,
+    "part_gap_in": 0.25,
+    "edge_margin_in": 0.5
+  },
+  "stock": [
+    {
+      "name": "Synthetic Plate",
+      "width": 48,
+      "height": 24,
+      "thickness": 0.5,
+      "qty": 1
+    }
+  ],
+  "parts": [
+    {
+      "source_id": "SYNTHETIC-SRC-P1",
+      "name": "SYNTHETIC-P1",
+      "width": 8,
+      "height": 6,
+      "qty": 2,
+      "shape": "rect"
+    }
+  ]
+}

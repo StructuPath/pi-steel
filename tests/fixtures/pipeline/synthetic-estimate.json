@@ -1,0 +1,231 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "project_id": "SYNTHETIC-PIPELINE-001",
+    "name": "Synthetic Pipeline Project",
+    "revision": {
+      "revision_id": "SYNTHETIC-REV-A",
+      "source_document": "SYNTHETIC-ESTIMATE-001"
+    }
+  },
+  "unit_system": "imperial",
+  "items": [
+    {
+      "intent": "fabricated_part",
+      "source_id": "SYNTHETIC-SRC-W1",
+      "item_id": "item:synthetic-pipeline-w1",
+      "quantity": 2,
+      "mark": "W1",
+      "description": "Synthetic wide-flange member",
+      "material": "carbon_steel",
+      "grade": "A992",
+      "designation": "W12X26",
+      "length_ft": 12,
+      "unit_weight_plf": 26,
+      "total_weight_lbs": 624,
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-DRAWING",
+          "locator": "SYNTHETIC-DETAIL-W1"
+        }
+      ]
+    },
+    {
+      "intent": "fabricated_part",
+      "source_id": "SYNTHETIC-SRC-HSS1",
+      "item_id": "item:synthetic-pipeline-hss1",
+      "quantity": 1,
+      "mark": "HSS1",
+      "description": "Synthetic long product",
+      "material": "carbon_steel",
+      "grade": "A500",
+      "designation": "HSS6X6X3/8",
+      "length_ft": 10,
+      "unit_weight_plf": 27.5,
+      "total_weight_lbs": 275,
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-DRAWING",
+          "locator": "SYNTHETIC-DETAIL-HSS1"
+        }
+      ]
+    },
+    {
+      "intent": "fabricated_part",
+      "source_id": "SYNTHETIC-SRC-P1",
+      "item_id": "item:synthetic-pipeline-p1",
+      "quantity": 2,
+      "mark": "P1",
+      "description": "Synthetic A36 plate part",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "geometry": {
+        "shape": "rect",
+        "width": 8,
+        "height": 6,
+        "thickness": 0.5,
+        "holes": [
+          {
+            "kind": "round",
+            "diameter": 1,
+            "x": 2,
+            "y": 2
+          }
+        ]
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-DRAWING",
+          "locator": "SYNTHETIC-DETAIL-P1"
+        }
+      ]
+    },
+    {
+      "intent": "fabricated_part",
+      "source_id": "SYNTHETIC-SRC-P2",
+      "item_id": "item:synthetic-pipeline-p2",
+      "quantity": 1,
+      "mark": "P2",
+      "description": "Synthetic A572 plate part",
+      "material": "carbon_steel",
+      "grade": "A572",
+      "geometry": {
+        "shape": "rect",
+        "width": 7,
+        "height": 5,
+        "thickness": 0.375,
+        "holes": []
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-DRAWING",
+          "locator": "SYNTHETIC-DETAIL-P2"
+        }
+      ]
+    },
+    {
+      "intent": "purchased_stock",
+      "source_id": "SYNTHETIC-SRC-S1",
+      "item_id": "item:synthetic-pipeline-s1",
+      "quantity": 1,
+      "mark": "S1",
+      "description": "Synthetic A36 sheet purchase",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "specification": "PLATE",
+      "dimensions": {
+        "category": "PLATE STOCK",
+        "width": 24,
+        "height": 12,
+        "thickness": 0.5,
+        "size": "24 x 12 x 0.5",
+        "purchase_weight_lbs": 41,
+        "inventory_id": "SYNTHETIC-STOCK-A36",
+        "replaces_item_ids": ["item:synthetic-pipeline-p1"]
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-ESTIMATE-001",
+          "locator": "SYNTHETIC-STOCK-S1"
+        }
+      ]
+    },
+    {
+      "intent": "purchased_stock",
+      "source_id": "SYNTHETIC-SRC-S2",
+      "item_id": "item:synthetic-pipeline-s2",
+      "quantity": 1,
+      "mark": "S2",
+      "description": "Synthetic A572 sheet purchase",
+      "material": "carbon_steel",
+      "grade": "A572",
+      "specification": "PLATE",
+      "dimensions": {
+        "category": "PLATE STOCK",
+        "width": 20,
+        "height": 10,
+        "thickness": 0.375,
+        "size": "20 x 10 x 0.375",
+        "purchase_weight_lbs": 21,
+        "inventory_id": "SYNTHETIC-STOCK-A572",
+        "replaces_item_ids": ["item:synthetic-pipeline-p2"]
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-ESTIMATE-001",
+          "locator": "SYNTHETIC-STOCK-S2"
+        }
+      ]
+    },
+    {
+      "intent": "allowance",
+      "source_id": "SYNTHETIC-SRC-A1",
+      "item_id": "item:synthetic-pipeline-a1",
+      "quantity": 1,
+      "description": "Synthetic connection allowance",
+      "allowance_basis": {
+        "kind": "percent",
+        "value": 5,
+        "applies_to": "fabricated_weight"
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-ESTIMATE-001",
+          "locator": "SYNTHETIC-ALLOWANCE-A1"
+        }
+      ]
+    },
+    {
+      "intent": "exclusion",
+      "source_id": "SYNTHETIC-SRC-X1",
+      "item_id": "item:synthetic-pipeline-x1",
+      "quantity": 1,
+      "description": "Synthetic excluded scope",
+      "reason": "Explicit synthetic exclusion",
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-ESTIMATE-001",
+          "locator": "SYNTHETIC-EXCLUSION-X1"
+        }
+      ]
+    }
+  ],
+  "stock": [
+    {
+      "stock_kind": "purchasable",
+      "inventory_id": "SYNTHETIC-STOCK-A36",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "width": 24,
+      "height": 12,
+      "thickness": 0.5,
+      "quantity": 1,
+      "status": "available"
+    },
+    {
+      "stock_kind": "purchasable",
+      "inventory_id": "SYNTHETIC-STOCK-A572",
+      "material": "carbon_steel",
+      "grade": "A572",
+      "width": 20,
+      "height": 10,
+      "thickness": 0.375,
+      "quantity": 1,
+      "status": "available"
+    }
+  ],
+  "commercial_basis": {
+    "currency": "USD",
+    "costs": []
+  },
+  "review": {
+    "status": "validated",
+    "findings": [],
+    "acknowledgements": []
+  },
+  "lineage": {
+    "source_type": "synthetic_test",
+    "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "configuration_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}
