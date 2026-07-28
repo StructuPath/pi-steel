@@ -79,18 +79,22 @@ class PublicDataPolicyTests(unittest.TestCase):
 
         self.assertTrue(any("credential assignment" in item for item in findings))
 
-    def test_audited_binary_requires_exact_path_and_hash(self):
+    def test_audited_binaries_require_exact_paths_and_hashes(self):
         scanner = load_scanner()
-        relative = Path("docs/assets/pi-steel-demo.gif")
-        content = (ROOT / relative).read_bytes()
-
-        self.assertTrue(scanner.is_audited_public_binary(relative, content))
-        self.assertFalse(
-            scanner.is_audited_public_binary(relative, content + b"modified")
-        )
-        self.assertFalse(
-            scanner.is_audited_public_binary(Path("docs/assets/other.gif"), content)
-        )
+        for relative in scanner.AUDITED_PUBLIC_BINARY_SHA256:
+            with self.subTest(relative=relative):
+                content = (ROOT / relative).read_bytes()
+                self.assertTrue(
+                    scanner.is_audited_public_binary(relative, content)
+                )
+                self.assertFalse(
+                    scanner.is_audited_public_binary(relative, content + b"modified")
+                )
+                self.assertFalse(
+                    scanner.is_audited_public_binary(
+                        Path("docs/assets/other.bin"), content
+                    )
+                )
 
     def test_scanner_detects_high_confidence_secret_formats_without_echoing_value(self):
         scanner = load_scanner()

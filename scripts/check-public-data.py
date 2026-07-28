@@ -38,6 +38,8 @@ PRIVATE_KEY_NAMES = {
 AUDITED_PUBLIC_BINARY_SHA256 = {
     Path("docs/assets/pi-steel-demo.gif"):
         "ae6ad7286fc5f1eca31e960d4ac4414b7a32a566b975ddacc7d662824c34d91c",
+    Path("docs/assets/pi-steel-gallery.webp"):
+        "9d8f2b1dedb00fa6c53c78f4578a12225f84bded4f7bbabe33182486372d12a8",
 }
 PATTERNS = {
     "private operating-company claim": re.compile(

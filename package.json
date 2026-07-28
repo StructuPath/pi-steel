@@ -1,7 +1,7 @@
 {
   "name": "@structupath/pi-steel",
   "version": "0.2.2",
-  "description": "Structural steel estimating skills for the Pi coding agent — AISC takeoffs, bills of material, tonnage calcs, plate nesting with burn-table DXF output, and vendor RFQ generation.",
+  "description": "Structural steel estimating for Pi — validated takeoffs, plate nesting, guarded DXF output, and review-ready RFQ packages.",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -10,7 +10,6 @@
     "structural-steel",
     "estimating",
     "takeoff",
-    "aisc",
     "bom",
     "rfq",
     "construction",
@@ -48,7 +47,8 @@
   "pi": {
     "skills": [
       "./skills"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/StructuPath/pi-steel/main/docs/assets/pi-steel-gallery.webp"
   },
   "files": [
     "skills",
@@ -66,6 +66,7 @@
     "DATA_PROVENANCE.md",
     "DATA_PROVENANCE.json",
     "docs/assets/pi-steel-demo.gif",
+    "docs/assets/pi-steel-gallery.webp",
     "README.md",
     "PUBLIC_DATA_POLICY.md",
     "LICENSE"

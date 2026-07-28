@@ -28,6 +28,7 @@ def test_npm_dry_run_contains_runtime_contract_and_excludes_private_artifacts():
         "DATA_PROVENANCE.json",
         "PUBLIC_DATA_POLICY.md",
         "docs/assets/pi-steel-demo.gif",
+        "docs/assets/pi-steel-gallery.webp",
         "scripts/check-data-provenance.py",
         "scripts/doctor.py",
         "skills/_shared/schemas/estimate-package.schema.json",
