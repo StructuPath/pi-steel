@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "project_id": "SYNTHETIC-EXAMPLE-001",
+    "name": "Synthetic Estimate Example",
+    "revision": {
+      "revision_id": "SYNTHETIC-REV-A",
+      "source_document": "SYNTHETIC-SOURCE-001"
+    }
+  },
+  "unit_system": "imperial",
+  "items": [
+    {
+      "intent": "fabricated_part",
+      "source_id": "SYNTHETIC-SRC-P1",
+      "item_id": "item:synthetic-example-p1",
+      "quantity": 2,
+      "mark": "P1",
+      "description": "Synthetic rectangular plate",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "geometry": {
+        "shape": "rect",
+        "width": 8,
+        "height": 6,
+        "thickness": 0.5,
+        "holes": [],
+        "rotatable": true
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-SOURCE-001",
+          "locator": "SYNTHETIC-DETAIL-P1"
+        }
+      ]
+    },
+    {
+      "intent": "purchased_stock",
+      "source_id": "SYNTHETIC-SRC-S1",
+      "item_id": "item:synthetic-example-s1",
+      "quantity": 1,
+      "description": "Synthetic stock plate purchase",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "specification": "PLATE",
+      "dimensions": {
+        "category": "PLATE STOCK",
+        "width": 24,
+        "height": 12,
+        "thickness": 0.5,
+        "size": "24 x 12 x 0.5",
+        "replaces_item_ids": [
+          "item:synthetic-example-p1"
+        ]
+      },
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-SOURCE-001",
+          "locator": "SYNTHETIC-STOCK-S1"
+        }
+      ]
+    }
+  ],
+  "stock": [
+    {
+      "stock_kind": "purchasable",
+      "inventory_id": "SYNTHETIC-STOCK-A36",
+      "material": "carbon_steel",
+      "grade": "A36",
+      "width": 24,
+      "height": 12,
+      "thickness": 0.5,
+      "quantity": 1,
+      "status": "available"
+    }
+  ],
+  "commercial_basis": {
+    "currency": "USD",
+    "costs": []
+  },
+  "review": {
+    "status": "validated",
+    "findings": [],
+    "acknowledgements": []
+  },
+  "lineage": {
+    "source_type": "synthetic_example",
+    "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "configuration_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

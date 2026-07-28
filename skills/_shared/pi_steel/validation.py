@@ -12,6 +12,7 @@ import jsonschema
 
 from .contracts import (
     ESTIMATE_PACKAGE_VERSION,
+    content_hash,
     estimate_input_hash,
     finding_id_for,
 )
@@ -201,6 +202,16 @@ def _geometry_findings(
 
 
 def validate_estimate_package(package: dict[str, Any]) -> ValidationResult:
+    if not isinstance(package, dict):
+        input_hash = content_hash(package)
+        finding = _finding(
+            code="schema_validation",
+            severity="blocker",
+            path="$",
+            message="Estimate package must be a JSON object.",
+            relevant_hash=input_hash,
+        )
+        return ValidationResult("invalid", input_hash, [finding], [finding])
     input_hash = estimate_input_hash(package)
     version = package.get("schema_version")
     if version != ESTIMATE_PACKAGE_VERSION:
@@ -217,6 +228,8 @@ def validate_estimate_package(package: dict[str, Any]) -> ValidationResult:
         return ValidationResult("invalid", input_hash, [finding], [finding])
 
     findings = _schema_findings(package, input_hash)
+    if findings:
+        return ValidationResult("invalid", input_hash, findings, findings)
     source_ids: dict[str, int] = {}
     item_ids: dict[str, int] = {}
     for index, item in enumerate(package.get("items", [])):

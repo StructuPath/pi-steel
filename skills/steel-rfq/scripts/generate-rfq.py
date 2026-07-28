@@ -107,19 +107,23 @@ def _fmt(value: Any) -> str:
 
 
 def _category_for(item: dict[str, Any]) -> str:
+    if item.get("intent") == "hardware":
+        return "HARDWARE"
     dimensions = item.get("dimensions") or {}
     if dimensions.get("category"):
         return str(dimensions["category"]).upper()
     designation = str(item.get("designation") or item.get("specification") or "")
     normalized = designation.upper().replace(" ", "")
-    if normalized.startswith("W"):
+    if re.match(r"^W\d+(?:X|×)", normalized):
         return "W-SHAPES"
     if normalized.startswith(("PL", "PLATE")) or item.get("geometry"):
         return "PLATE PARTS"
     if normalized.startswith(("FB", "FLATBAR")):
         return "FLAT BAR STOCK"
-    if item.get("intent") == "hardware":
-        return "HARDWARE"
+    if re.match(r"^(?:HSS|PIPE)\d", normalized) or re.match(
+        r"^(?:C|MC|L)\d+(?:X|×)", normalized
+    ):
+        return "LONG PRODUCTS"
     return "OTHER"
 
 

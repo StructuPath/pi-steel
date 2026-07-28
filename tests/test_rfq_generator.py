@@ -23,6 +23,24 @@ def load(name):
     return json.loads((FIXTURES / name).read_text())
 
 
+@pytest.mark.parametrize(
+    "designation", ["HSS6X6X3/8", "C10X20", "MC12X31", "L4X4X1/2", "PIPE4"]
+)
+def test_long_product_designations_share_the_long_products_category(designation):
+    assert rfq._category_for({"designation": designation}) == "LONG PRODUCTS"
+
+
+@pytest.mark.parametrize(
+    ("item", "category"),
+    [
+        ({"specification": "CAP PLATE"}, "OTHER"),
+        ({"intent": "hardware", "designation": "LOCK WASHER"}, "HARDWARE"),
+    ],
+)
+def test_category_prefixes_do_not_capture_plate_words_or_hardware(item, category):
+    assert rfq._category_for(item) == category
+
+
 def test_canonical_normalization_uses_typed_scope_and_explicit_replacements_only():
     package = load("estimate-package.json")
     normalized = rfq.normalize_canonical_package(package)
