@@ -1,0 +1,8 @@
+# Exact environment exercised during the v0.3 runtime bootstrap work.
+jsonschema==4.26.0
+openpyxl==3.1.5
+pandas==2.3.3
+pytest==9.0.2
+ezdxf==1.4.4
+matplotlib==3.10.9
+numpy==2.4.1

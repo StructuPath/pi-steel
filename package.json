@@ -30,6 +30,12 @@
   "engines": {
     "node": ">=20.6.0"
   },
+  "scripts": {
+    "doctor": "python3 scripts/doctor.py",
+    "test": "python3 -m pytest",
+    "test:runtime": "python3 -m pytest tests/test_runtime_bootstrap.py tests/test_run_manifests.py tests/test_installed_scripts.py",
+    "pack:dry-run": "npm pack --dry-run"
+  },
   "pi": {
     "skills": [
       "./skills"
@@ -40,6 +46,12 @@
     "!skills/**/__pycache__",
     "!skills/**/*.pyc",
     "!skills/**/company-profile.json",
+    "scripts/doctor.py",
+    "pyproject.toml",
+    "requirements.txt",
+    "requirements-tested.txt",
+    "requirements-dev.txt",
+    "DATA_PROVENANCE.md",
     "README.md",
     "PUBLIC_DATA_POLICY.md",
     "LICENSE"
