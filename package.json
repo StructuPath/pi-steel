@@ -37,7 +37,11 @@
   },
   "files": [
     "skills",
+    "!skills/**/__pycache__",
+    "!skills/**/*.pyc",
+    "!skills/**/company-profile.json",
     "README.md",
+    "PUBLIC_DATA_POLICY.md",
     "LICENSE"
   ]
 }

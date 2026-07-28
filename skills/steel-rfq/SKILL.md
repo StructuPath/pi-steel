@@ -13,18 +13,18 @@ The RFQ format was designed around how steel vendors actually work — materials
 
 ## Company Profile (required setup)
 
-The RFQ carries the requesting company's identity. Load it from
-`assets/company-profile.json` in this skill's directory (copy
-`company-profile.example.json` and edit). If the file is missing, ask the
-user for their company name, city/state, and payment terms before
-generating, and offer to save the answers as `company-profile.json` for
-next time.
+The RFQ carries the requesting company's identity. Load it from an explicit
+`PI_STEEL_CONFIG` path, the ignored project-local
+`.pi-steel/company-profile.json`, or the platform user-config directory. Never save
+runtime company data inside this installed skill or the public repository. If no
+profile is available, ask the user for their company name, city/state, and approved
+terms before generating.
 
 Profile fields:
 - `company_name` — appears in the header and terms & conditions
-- `city_state` — appears in the header (e.g., "Denver, CO")
-- `payment_terms` — default "Net 30 from date of delivery"
-- `quote_validity_days` — default 30
+- `city_state` — appears in the header (e.g., "Example City, ST")
+- `payment_terms` — required approved text; no shipped default
+- `quote_validity_days` — optional approved value; no shipped default
 - `logo` — optional filename in `assets/` to embed top-left
 
 Never invent company details. If the profile is incomplete, ask.
@@ -125,19 +125,15 @@ Below the totals (skip a row), add a reference section:
 - One row per material showing the nesting layout and expected drop from the estimate
 - This helps cross-check vendor stock lengths against the cutting plan
 
-### Standard Terms & Conditions
+### Terms & Conditions
 Below the nesting table (skip a row), add:
 - Header: "TERMS & CONDITIONS" — dark blue bold text
-- Include these standard terms, each on its own row, substituting the company name and payment terms from the company profile:
-
-1. **Delivery**: All material to be delivered FOB jobsite unless otherwise agreed. Vendor to confirm freight costs separately.
-2. **Mill Certifications**: Mill test reports (MTRs) required for all structural steel per AISC/AWS standards. Certs must accompany delivery.
-3. **Payment Terms**: [payment_terms from profile] unless otherwise negotiated in writing.
-4. **Material Standards**: All wide-flange shapes to meet ASTM A992. All plate and bar to meet grade specified on this RFQ (A572 Gr.50 or A36).
-5. **Substitutions**: No substitutions without prior written approval from [Company Name]. If quoting alternate sizes, clearly note in the "Alternate Size" column.
-6. **Quote Validity**: Quoted prices to remain firm for [quote_validity_days] days from date of quote unless otherwise stated.
-7. **Inspection**: [Company Name] reserves the right to inspect material upon delivery and reject material not meeting specifications.
-8. **Cancellation**: Orders may be cancelled without penalty if material has not shipped. Restocking fees, if any, to be stated in quote.
+- Load terms only from the user's approved company profile or an explicitly supplied
+  project template.
+- Do not ship, infer, or invent default commercial terms. Missing approved terms keep
+  the workbook in draft/review-required status.
+- Public examples must use obvious placeholders and must not contain a real company's
+  payment, delivery, cancellation, inspection, substitution, or purchasing policy.
 
 ### Branding / Logo
 If the company profile names a logo file and it exists in the skill's `assets/` directory, insert it in cell A1 area (top-left) and adjust the header text to not overlap. Otherwise use the text header as described above.
@@ -152,7 +148,7 @@ If the company profile names a logo file and it exists in the skill's `assets/` 
 Output file: `[ProjectName]_RFQ_Material_List.xlsx`
 - Extract project name from the estimate file (look in "Project Info" sheet or the first rows of the takeoff)
 - Replace spaces with underscores
-- Example: `Cherokee_Boys_RFQ_Material_List.xlsx`
+- Example: `Synthetic_Demo_RFQ_Material_List.xlsx`
 
 ## Step-by-Step Workflow
 
@@ -165,7 +161,7 @@ Output file: `[ProjectName]_RFQ_Material_List.xlsx`
 7. Build the RFQ spreadsheet using openpyxl following the format above
 8. Add formulas for totals and verify the SUM ranges cover exactly the data rows
 9. Add nesting/drop reference from the estimate notes — or, if the `steel-nest` skill has been run for this job, read its `rfq_nesting.json` output straight into the table
-10. Add standard terms & conditions with profile values substituted
+10. Add only user-approved terms from the selected profile or project template
 11. Insert logo if configured
 12. Save the file, then run `python3 scripts/recalc.py <output.xlsx>` so formula values are computed (openpyxl writes formulas but never calculates them)
 13. Verify no formula errors and present the file to the user

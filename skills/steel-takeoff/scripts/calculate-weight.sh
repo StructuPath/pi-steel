@@ -10,7 +10,7 @@
 #   connection_pct  - Connection allowance percentage (default: 12)
 #   misc_pct        - Misc steel allowance percentage (default: 5)
 #
-# Output: Line-by-line breakdown + totals with cost estimate
+# Output: Line-by-line breakdown + weight totals. Pricing is supplied separately.
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -136,13 +136,6 @@ print(f"  {'Misc Steel Allow ({:.0f}%):':<30} {misc_wt:>12,.0f} lb  ({misc_wt/20
 print(f"  {'─'*60}")
 print(f"  {'GRAND TOTAL:':<30} {grand_total:>12,.0f} lb  ({grand_total/2000:>8,.1f} tons)")
 print(f"  {'─'*60}")
-
-# Cost estimates at various $/ton rates
-print(f"\n  COST ESTIMATES:")
-tons = grand_total / 2000
-for rate in [2800, 3200, 3600, 4000]:
-    cost = tons * rate
-    print(f"    @ ${rate:,}/ton:  ${cost:>14,.0f}")
 
 print(f"\n{'='*78}\n")
 PYTHON

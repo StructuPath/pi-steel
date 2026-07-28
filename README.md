@@ -1,8 +1,8 @@
 # pi-steel
 
-Structural steel estimating skills for the [Pi coding agent](https://pi.dev) — built by working steel estimators, not by people guessing what a takeoff is.
+Structural steel estimating skills for the [Pi coding agent](https://pi.dev).
 
-By [StructuPath](https://structupath.ai), from the team behind a production structural-steel fabrication shop in Denver, CO.
+By [StructuPath](https://structupath.ai).
 
 ## Install
 
@@ -46,7 +46,14 @@ Turns a steel estimate/takeoff spreadsheet into a standardized vendor RFQ (.xlsx
 
 The three skills chain into a full estimating pipeline: **takeoff → nest → RFQ**.
 
-One-time setup: copy `skills/steel-rfq/assets/company-profile.example.json` to `company-profile.json` and put in your company name, city, and payment terms. The skill will ask and offer to save it if you skip this.
+One-time setup: copy `skills/steel-rfq/assets/company-profile.example.json` to the
+ignored path `.pi-steel/company-profile.json` in your project and enter approved
+company and commercial information there. Never add the completed profile to this
+repository.
+
+Keep company profiles, customer files, vendor information, live pricing, and generated
+artifacts outside this repository. Public examples are synthetic and must follow
+[`PUBLIC_DATA_POLICY.md`](PUBLIC_DATA_POLICY.md).
 
 > "Send this takeoff out for pricing"
 > "Generate an RFQ from this estimate"

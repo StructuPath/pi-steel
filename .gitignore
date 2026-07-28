@@ -5,3 +5,19 @@ outputs/
 .a5c/
 __pycache__/
 *.pyc
+
+# Local company, project, and generated business data
+.pi-steel/
+company-profile.json
+**/company-profile.json
+private/
+local-data/
+customer-data/
+vendor-data/
+*.local.json
+*.private.json
+*.xlsx
+*.xls
+*.pdf
+*.dxf
+*.png

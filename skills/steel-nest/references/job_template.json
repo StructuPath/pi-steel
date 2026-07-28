@@ -1,6 +1,6 @@
 {
-  "job_name": "SO-XXXX  Short description",
-  "customer": "Customer name",
+  "job_name": "SYNTHETIC-DEMO-XXX  Short description",
+  "customer": "Example Customer",
 
   "_comment_settings": "Cut/gap in inches. kerf = torch cut width (plasma ~0.06, oxy ~0.1, laser ~0.02). part_gap = clearance between parts on top of kerf. edge_margin = keep-out from plate edge (clamp/grip zone). density lb/in^3: A36 steel = 0.2836, aluminum = 0.098, stainless 304 = 0.289.",
   "settings": {
@@ -11,15 +11,14 @@
     "density_lb_in3": 0.2836
   },
 
-  "_comment_stock": "One entry per plate size you have on hand. qty = how many sheets available (or set \"unlimited\": true to buy as many as needed). Price EITHER by cost_per_lb OR cost_per_sheet — cost_per_lb is preferred because it also values the scrap.",
+  "_comment_stock": "One entry per plate size you have on hand. qty = how many sheets available (or set \"unlimited\": true to buy as many as needed). Add either cost_per_lb or cost_per_sheet only from an approved project input; public templates intentionally contain no pricing.",
   "stock": [
     {
       "name": "A36 Plate 1/2\"",
       "width": 96,
       "height": 48,
       "thickness": 0.5,
-      "qty": 4,
-      "cost_per_lb": 0.92
+      "qty": 4
     }
   ],
 
