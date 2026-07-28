@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import subprocess
 import sys
@@ -34,6 +35,10 @@ PRIVATE_KEY_NAMES = {
     "private-key",
     "private_key",
 }
+AUDITED_PUBLIC_BINARY_SHA256 = {
+    Path("docs/assets/pi-steel-demo.gif"):
+        "ae6ad7286fc5f1eca31e960d4ac4414b7a32a566b975ddacc7d662824c34d91c",
+}
 PATTERNS = {
     "private operating-company claim": re.compile(
         r"team behind (?:a|the) production structural[- ]steel", re.I
@@ -57,6 +62,11 @@ PATTERNS = {
     ),
     "OpenAI API key": re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
 }
+
+
+def is_audited_public_binary(relative: Path, content: bytes) -> bool:
+    expected = AUDITED_PUBLIC_BINARY_SHA256.get(relative)
+    return expected is not None and hashlib.sha256(content).hexdigest() == expected
 
 
 def tracked_files(root: Path = ROOT) -> list[Path]:
@@ -128,8 +138,11 @@ def scan_paths(
         if suffix in FORBIDDEN_BINARY_SUFFIXES:
             findings.append(f"{relative}: public repository must not contain {suffix} artifacts")
             continue
+        content = path.read_bytes()
+        if is_audited_public_binary(relative, content):
+            continue
         try:
-            text = path.read_bytes().decode("utf-8")
+            text = content.decode("utf-8")
         except UnicodeDecodeError:
             findings.append(f"{relative}: unknown binary file")
             continue
@@ -163,6 +176,8 @@ def _scan_bytes(
         return [
             f"{prefix}{relative}: public repository must not contain {suffix} artifacts"
         ]
+    if is_audited_public_binary(relative, content):
+        return []
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
