@@ -17,24 +17,36 @@ PROVENANCE_RECORD_PATH = ROOT / "DATA_PROVENANCE.json"
 def audit() -> dict:
     errors: list[str] = []
     try:
-        record = json.loads(PROVENANCE_RECORD_PATH.read_text(encoding="utf-8"))
+        parsed_record = json.loads(PROVENANCE_RECORD_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         errors.append("DATA_PROVENANCE.json is missing or invalid")
-        record = {}
+        parsed_record = {}
+    if not isinstance(parsed_record, dict):
+        errors.append("DATA_PROVENANCE.json must contain an object")
+        parsed_record = {}
 
-    datasets = record.get("datasets", [])
-    if len(datasets) != 1:
-        errors.append("expected exactly one declared shipped dataset")
+    datasets = parsed_record.get("datasets", [])
+    if (
+        not isinstance(datasets, list)
+        or len(datasets) != 1
+        or not isinstance(datasets[0], dict)
+    ):
+        errors.append("expected exactly one declared shipped dataset object")
         dataset = {}
     else:
         dataset = datasets[0]
 
-    shapes_path = ROOT / dataset.get("shipped_file", "")
-    try:
-        raw = shapes_path.read_bytes()
-    except OSError:
-        errors.append("declared shape data is missing or unreadable")
+    shipped_file = dataset.get("shipped_file")
+    if not isinstance(shipped_file, str) or not shipped_file:
+        errors.append("declared dataset must have a non-empty shipped_file")
         raw = b""
+    else:
+        shapes_path = ROOT / shipped_file
+        try:
+            raw = shapes_path.read_bytes()
+        except OSError:
+            errors.append("declared shape data is missing or unreadable")
+            raw = b""
 
     checksum = hashlib.sha256(raw).hexdigest()
     if checksum != dataset.get("sha256"):

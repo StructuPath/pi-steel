@@ -46,6 +46,24 @@ class DataProvenanceTests(unittest.TestCase):
         self.assertIn('"redistribution_permission": "authorized"', result.stdout)
         self.assertIn('"release_readiness": "ready"', result.stdout)
 
+    def test_malformed_provenance_records_fail_closed(self):
+        module = load_script()
+        cases = (
+            ([], "DATA_PROVENANCE.json must contain an object"),
+            ({"datasets": [None]}, "expected exactly one declared shipped dataset object"),
+            ({"datasets": [{}]}, "declared dataset must have a non-empty shipped_file"),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            record_path = Path(directory) / "DATA_PROVENANCE.json"
+            setattr(module, "PROVENANCE_RECORD_PATH", record_path)
+            for record, expected_error in cases:
+                with self.subTest(record=record):
+                    record_path.write_text(json.dumps(record), encoding="utf-8")
+                    report = module.audit()
+                    self.assertEqual(report["integrity"], "failed")
+                    self.assertIn(expected_error, report["errors"])
+
     def test_ready_dataset_requires_authorized_redistribution(self):
         module = load_script()
         record = json.loads(module.PROVENANCE_RECORD_PATH.read_text(encoding="utf-8"))
