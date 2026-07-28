@@ -50,8 +50,15 @@ class DataProvenanceTests(unittest.TestCase):
         module = load_script()
         cases = (
             ([], "DATA_PROVENANCE.json must contain an object"),
-            ({"datasets": [None]}, "expected exactly one declared shipped dataset object"),
+            (
+                {"datasets": [None]},
+                "expected exactly one declared shipped dataset object",
+            ),
             ({"datasets": [{}]}, "declared dataset must have a non-empty shipped_file"),
+            (
+                {"datasets": [{"shipped_file": "missing.json"}]},
+                "declared shape data is missing or unreadable",
+            ),
         )
 
         with tempfile.TemporaryDirectory() as directory:
