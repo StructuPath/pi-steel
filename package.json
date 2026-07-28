@@ -65,6 +65,7 @@
     "requirements-render.txt",
     "DATA_PROVENANCE.md",
     "DATA_PROVENANCE.json",
+    "docs/assets/pi-steel-demo.gif",
     "README.md",
     "PUBLIC_DATA_POLICY.md",
     "LICENSE"

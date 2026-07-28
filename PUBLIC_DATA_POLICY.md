@@ -12,6 +12,8 @@ distribution.
 - Invented dimensions and quantities that do not reproduce a private project.
 - Placeholder configuration such as `Example Fabricator` and `Example City, ST`.
 - Product behavior and generic steel-domain terminology.
+- Public demo media reviewed before publication and pinned in the scanner by exact
+  repository path and SHA-256 digest. Replacing it requires a new review and digest.
 
 ## Prohibited
 
