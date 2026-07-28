@@ -1,6 +1,6 @@
 ---
 name: steel-nest
-description: "Nest steel parts onto stock plates and estimate material — the plate-layout / cutting step that CAM software (SigmaNEST, Hypertherm, FANUC) does. Use this skill whenever someone mentions nesting, plate layout, plate optimization, cut list, cutting plan, yield, drop/remnant, how many sheets/plates a job needs, how much plate to buy, or laying parts out on a sheet. Also trigger when a new order/SO comes in and someone asks 'how much material', 'how many plates', 'what's the yield', or 'lay these parts out' — even if they don't say the word 'nest'. Produces a nesting layout (PDF + PNG), a cut list, yield/scrap/remnant numbers, material cost, and a DXF of the nest. Rectangular parts nest exactly; irregular parts nest by bounding box."
+description: "Nest steel parts onto stock plates and estimate material — the plate-layout / cutting step that CAM software does. Use this skill whenever someone mentions nesting, plate layout, plate optimization, cut list, cutting plan, yield, drop/remnant, how many sheets/plates a job needs, how much plate to buy, or laying parts out on a sheet. Also trigger when a new order/SO comes in and someone asks 'how much material', 'how many plates', 'what's the yield', or 'lay these parts out' — even if they don't say the word 'nest'. Produces a nesting layout (PDF + PNG), a cut list, yield/scrap/remnant numbers, material cost, and guarded reference/burn DXFs. Rectangular parts nest exactly; irregular parts nest by bounding box."
 ---
 
 # Steel Plate Nesting & Estimate
@@ -22,13 +22,15 @@ Be honest with the user about the boundary — it protects the shop from over-tr
 - Yield %, scrap weight, largest reusable **drop** per plate.
 - Material weight and cost (by $/lb — which also values scrap — or by $/sheet).
 - Labeled layout (PDF + one PNG per plate).
-- **Burn-table files**: one DXF **per sheet** (`burn_plate_N.dxf`) with part outlines on layer `PROFILE` and holes on layer `HOLES`, origin at the sheet corner — ready to import into the table's CAM. Plus `nest.dxf`, an all-sheets overview.
+- **Reference file**: `reference_nest.dxf`, an all-sheets estimating/layout reference.
+- **Guarded burn-table files**: one DXF per sheet (`burn_plate_N.dxf`) with part outlines on `PROFILE` and holes on `HOLES`, origin at the sheet corner, but only when every part is rectangular, every required part fits, and every supported hole stays inside its part.
 
 **Approximate — always flag it:**
 - **Irregular parts** (gussets, brackets, curved profiles, parts with holes) are nested by their **bounding box**, not true shape. Real yield is a little better than reported. For exact weight/cost on those, get the true cut area (in²) into the part's `area` field. This is NOT true-shape nesting like a dedicated CAM engine.
+- Any irregular part suppresses all fabrication-style DXFs for that job. The remaining PDF, PNG, report, JSON, and `reference_nest.dxf` outputs are estimating aids, not cutting instructions.
 
 **Do NOT pretend to do:**
-- **Machine-ready G-code / NC** with kerf compensation, pierce points, and lead-ins for a specific controller. That is machine-specific and safety-critical and must come from the real post-processor. The burn DXF from this skill is a geometry/import file — the table's CAM (Hypertherm ProNest, FastCAM, SigmaNEST, Lantek, or the controller's own importer) applies kerf comp, lead-ins and pierce. Say so plainly if asked for G-code; offer the DXF as the correct hand-off.
+- **Machine-ready G-code / NC** with kerf compensation, pierce points, and lead-ins for a specific controller. That is machine-specific and safety-critical and must come from the real post-processor. When a burn DXF is emitted, it is still an import geometry file that requires operator and CAM verification. Say so plainly if asked for G-code.
 
 ## Inputs to Gather
 
@@ -36,7 +38,7 @@ Everything drives a single job JSON (schema in `references/job_template.json`; a
 
 Gather three things:
 
-1. **Parts** — for each unique part: name, width × height (inches; use the bounding box for odd shapes), quantity, whether it's `rect` or `irregular`, and whether rotation is allowed (`rotatable: false` locks grain/rolling direction for anisotropic material or directional finish). If a part has **holes or cutouts** and you want them cut in the burn file (and netted out of weight), add a `holes` list — each hole's `x,y` is its center from the part's lower-left corner: round = `{"dia":, "x":, "y":}`, rectangular cutout = `{"w":, "h":, "x":, "y":}`. Holes are optional; skip them if you only need the layout/estimate.
+1. **Parts** — for each unique part: name, width × height (inches; use the bounding box for odd shapes), quantity, whether it's `rect` or `irregular`, and whether rotation is allowed (`rotatable: false` locks grain/rolling direction for anisotropic material or directional finish). If a rectangular part has **holes or cutouts**, add a `holes` list — each hole's `x,y` is its center from the part's lower-left corner: round = `{"dia":, "x":, "y":}`, rectangular cutout = `{"w":, "h":, "x":, "y":}`. A supported hole must remain fully inside its part or fabrication-style DXFs are suppressed. Holes are optional; skip them if you only need the layout/estimate.
 2. **Stock** — plate size(s) on hand (width × height × thickness), how many sheets are available (or `unlimited` to buy as needed), and price (`cost_per_lb` preferred; `cost_per_sheet` works too).
 3. **Cut settings** — kerf, part gap, edge margin, material density. Sensible defaults are in the template; only ask if the user hasn't implied them. Common kerf: plasma ~0.06", oxy-fuel ~0.10", laser ~0.02", waterjet ~0.03".
 
@@ -58,8 +60,8 @@ python3 scripts/nest.py --job <job.json> --out <outdir>
 Outputs land in `<outdir>/`:
 - `layout.pdf` — every plate drawn (holes shown) + a summary page (the main deliverable)
 - `plate_1.png`, `plate_2.png`, … — one image per plate
-- `burn_plate_1.dxf`, `burn_plate_2.dxf`, … — **one DXF per sheet for the burn table** (PROFILE + HOLES layers, origin at sheet corner)
-- `nest.dxf` — all sheets side-by-side, one overview file
+- `burn_plate_1.dxf`, `burn_plate_2.dxf`, … — guarded per-sheet import geometry (PROFILE + HOLES layers, origin at sheet corner); absent when the safety guard blocks them
+- `reference_nest.dxf` — all sheets side-by-side, reference only
 - `rfq_nesting.json` — the Material / Nesting Plan / Drop Notes block for the `steel-rfq` hand-off (see below)
 - `report.txt` — the text report
 - `result.json` — structured result (plates, placements, holes, yield, cost) for downstream use
@@ -68,7 +70,7 @@ The engine has no third-party build dependencies beyond `ezdxf`, `matplotlib`, a
 
 ## What to Deliver
 
-Always deliver the **PDF layout** and give the headline numbers in the message: plates used, overall yield %, total material cost, and any parts that **did not fit** (the report flags these — never hide them; it means they need more or bigger stock). Offer the DXF and per-plate PNGs. If the parts were irregular, restate the bounding-box caveat so the quote isn't over-trusted.
+Always deliver the **PDF layout** and give the headline numbers in the message: plates used, overall yield %, total material cost, and any parts that **did not fit** (the report flags these — never hide them; it means they need more or bigger stock). Offer the reference DXF and per-plate PNGs. Offer burn DXFs only when they were emitted by the guard, and still state that CAM/operator verification is required. If burn DXFs were suppressed, report every reason. If the parts were irregular, restate the bounding-box caveat so the quote isn't over-trusted.
 
 Verify before presenting: the engine already checks that no parts overlap and all fit in-bounds, but sanity-check the yield and cost against the plate count (e.g., cost = plates × sheet cost, or plate weight × $/lb). If a plate shows very low yield, mention it — it's usually the tail plate and may be worth holding parts for the next order.
 

@@ -14,10 +14,10 @@ Reliable:
   * Yield / scrap / largest reusable drop, part weight, material cost.
   * Labeled layout (PNG per plate + combined PDF).
   * DXF outputs:
-      - nest.dxf              all plates side-by-side (overview/reference)
-      - burn_plate_N.dxf      ONE FILE PER SHEET for the burn table:
-                              part profiles on layer PROFILE, holes on
-                              layer HOLES, origin at the sheet corner.
+      - reference_nest.dxf    all plates side-by-side (reference only)
+      - burn_plate_N.dxf      ONE FILE PER SHEET for the burn table when
+                              every part is rectangular, every required part
+                              fits, and supported holes stay inside the part.
 
 Deliberately NOT done:
   * True-shape nesting of irregular parts (they nest by BOUNDING BOX,
@@ -184,6 +184,62 @@ def hole_local(pc, hole):
         # 90deg CCW: (x,y) -> (oh - y, x) inside placed box (oh wide, ow tall)
         return pc["oh"] - hy, hx
     return hx, hy
+
+
+def burn_dxf_warnings(job, unplaced):
+    """Return reasons the current job is unsafe for fabrication-style DXF output."""
+    warnings = []
+
+    if any(part.get("shape", "rect") == "irregular" for part in job["parts"]):
+        warnings.append(
+            "Irregular parts use approximate bounding boxes; burn DXFs are suppressed."
+        )
+
+    if unplaced:
+        warnings.append(
+            f"{len(unplaced)} required part(s) did not fit; burn DXFs are suppressed."
+        )
+
+    eps = 1e-9
+    for part in job["parts"]:
+        width = float(part["width"])
+        height = float(part["height"])
+        for index, hole in enumerate(part.get("holes", []) or [], 1):
+            try:
+                x = float(hole["x"])
+                y = float(hole["y"])
+                if hole.get("dia") is not None:
+                    radius = float(hole["dia"]) / 2.0
+                    contained = (
+                        radius > 0
+                        and x - radius >= -eps
+                        and y - radius >= -eps
+                        and x + radius <= width + eps
+                        and y + radius <= height + eps
+                    )
+                elif hole.get("w") is not None and hole.get("h") is not None:
+                    hole_width = float(hole["w"])
+                    hole_height = float(hole["h"])
+                    contained = (
+                        hole_width > 0
+                        and hole_height > 0
+                        and x - hole_width / 2.0 >= -eps
+                        and y - hole_height / 2.0 >= -eps
+                        and x + hole_width / 2.0 <= width + eps
+                        and y + hole_height / 2.0 <= height + eps
+                    )
+                else:
+                    contained = False
+            except (KeyError, TypeError, ValueError):
+                contained = False
+
+            if not contained:
+                warnings.append(
+                    f"Part '{part['name']}' hole {index} is unsupported or extends "
+                    "outside the part; burn DXFs are suppressed."
+                )
+
+    return warnings
 
 
 # --------------------------------------------------------------------------
@@ -353,6 +409,7 @@ def _summarize(job, used_plates, unplaced, density, margin, kerf, gap):
 
     overall_yield = round(100 * tot_part_area_bbox / tot_plate_area, 1) if tot_plate_area else 0.0
 
+    burn_warnings = burn_dxf_warnings(job, unplaced)
     res = {
         "meta": {
             "job_name": job.get("job_name", "Nesting job"),
@@ -373,6 +430,8 @@ def _summarize(job, used_plates, unplaced, density, margin, kerf, gap):
         "unplaced": [{"label": u["label"], "size": f'{_fmt(u["w"])} x {_fmt(u["h"])}'}
                      for u in unplaced],
         "has_irregular": any(p.get("shape") == "irregular" for p in job["parts"]),
+        "burn_dxf_eligible": not burn_warnings,
+        "burn_dxf_warnings": burn_warnings,
     }
     res["rfq_nesting"] = rfq_nesting_block(res)
     return res
@@ -468,6 +527,12 @@ def render_text(res):
     if res["has_irregular"]:
         L.append("  NOTE: irregular parts are nested by BOUNDING BOX. Supply a")
         L.append("  true `area` per irregular part for exact weight/cost.")
+    if res["burn_dxf_warnings"]:
+        L.append("")
+        L.append("  BURN DXF SUPPRESSED:")
+        for warning in res["burn_dxf_warnings"]:
+            L.append(f"    - {warning}")
+        L.append("  Reference layouts are estimating aids, not cutting instructions.")
     L.append("=" * 64)
     return "\n".join(L)
 
@@ -584,13 +649,16 @@ def render_dxf_overview(res, outdir):
         for pc in pr["placements"]:
             _draw_part_dxf(msp, pc, x_off + margin, margin, "PROFILE", "HOLES", "NOTES")
         x_off += W + 10.0
-    path = os.path.join(outdir, "nest.dxf")
+    path = os.path.join(outdir, "reference_nest.dxf")
     doc.saveas(path)
     return path
 
 
 def render_burn_dxfs(res, outdir):
     """One DXF per sheet for the burn table. Origin at sheet corner."""
+    if not res.get("burn_dxf_eligible", False):
+        return []
+
     import ezdxf
     margin = res["meta"]["edge_margin_in"]
     paths = []
@@ -642,9 +710,13 @@ def main():
         overview = render_dxf_overview(res, args.out)
         burns = render_burn_dxfs(res, args.out)
         print(f"\nWrote: {pdf}")
-        print(f"       {overview}  (overview)")
+        print(f"       {overview}  (reference only)")
         for b in burns:
             print(f"       {b}  (burn table — one per sheet)")
+        if not burns:
+            print("       burn DXFs suppressed:")
+            for warning in res["burn_dxf_warnings"]:
+                print(f"         - {warning}")
         print(f"       {len(pngs)} PNG(s), report.txt, result.json, rfq_nesting.json")
 
 

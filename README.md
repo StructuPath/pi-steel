@@ -28,11 +28,13 @@ Ask your agent things like:
 > "What's the lightest W-shape with depth ≥ 18" and Ix ≥ 1000?"
 > "Total tonnage on this BOM with 12% connections"
 
-### `steel-nest` — plate nesting & burn-table DXF
+### `steel-nest` — plate nesting & guarded DXF output
 
-The plate-layout step CAM software does, minus the CAM seat: MaxRects bin-packing of parts onto stock plates with kerf/gap/edge-margin spacing, holes and rectangular cutouts, yield/scrap/reusable-drop numbers, and material cost. Outputs a labeled layout (PDF + PNG per plate), a cut list, and **one DXF per sheet for the burn table** (part outlines on `PROFILE`, holes on `HOLES`, origin at sheet corner — ready for ProNest/FastCAM/SigmaNEST import).
+The plate-layout step CAM software does, minus the CAM seat: MaxRects bin-packing of parts onto stock plates with kerf/gap/edge-margin spacing, holes and rectangular cutouts, yield/scrap/reusable-drop numbers, and material cost. Outputs include a labeled layout (PDF + PNG per plate), a cut list, and an explicitly named all-sheets reference DXF.
 
-Honest about its limits: rectangular parts nest exactly; irregular parts nest by bounding box (flagged, never hidden); it deliberately does **not** emit G-code — kerf comp, lead-ins, and pierce points belong to your table's real post-processor.
+Per-sheet `burn_plate_N.dxf` files are emitted only for a complete rectangular nest whose supported holes remain inside their parts. Any irregular part, unplaced part, or out-of-bounds hole suppresses burn DXFs for the whole job and leaves the estimating/reference artifacts available with an explicit warning.
+
+Honest about its limits: rectangular parts nest exactly; irregular parts nest by bounding box (flagged, never hidden); reference DXFs are not cutting instructions; and the package deliberately does **not** emit G-code. Kerf compensation, lead-ins, pierce points, and machine-specific verification belong to the table's real CAM and post-processor.
 
 > "How many sheets does this job need?"
 > "Nest these parts on 96×48 plate and give me the yield"
