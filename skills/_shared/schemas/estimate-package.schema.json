@@ -1,0 +1,361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://structupath.ai/schemas/pi-steel/estimate-package-1.0.0.json",
+  "title": "pi-steel canonical estimate package",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project",
+    "unit_system",
+    "items",
+    "stock",
+    "commercial_basis",
+    "review",
+    "lineage"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "project": { "$ref": "#/$defs/project" },
+    "unit_system": { "enum": ["imperial", "metric"] },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    },
+    "stock": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stock" }
+    },
+    "commercial_basis": { "$ref": "#/$defs/commercialBasis" },
+    "review": { "$ref": "#/$defs/review" },
+    "lineage": { "$ref": "#/$defs/lineage" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "project": {
+      "type": "object",
+      "required": ["project_id", "revision"],
+      "properties": {
+        "project_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "revision": {
+          "type": "object",
+          "required": ["revision_id"],
+          "properties": {
+            "revision_id": { "type": "string", "minLength": 1 },
+            "source_document": { "type": "string" },
+            "issued_date": { "type": "string", "format": "date" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["source", "locator"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "locator": { "type": "string", "minLength": 1 },
+        "source_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "hole": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "diameter", "x", "y"],
+          "properties": {
+            "kind": { "const": "round" },
+            "diameter": { "type": "number" },
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "width", "height", "x", "y"],
+          "properties": {
+            "kind": { "const": "rect" },
+            "width": { "type": "number" },
+            "height": { "type": "number" },
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "geometry": {
+      "type": "object",
+      "required": ["shape", "width", "height", "thickness"],
+      "properties": {
+        "shape": { "type": "string" },
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "thickness": { "type": "number" },
+        "area": { "type": "number" },
+        "holes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/hole" },
+          "default": []
+        },
+        "rotatable": { "type": "boolean", "default": true }
+      },
+      "additionalProperties": false
+    },
+    "itemBase": {
+      "type": "object",
+      "required": ["intent", "source_id", "item_id", "quantity"],
+      "properties": {
+        "intent": {
+          "enum": [
+            "fabricated_part",
+            "purchased_stock",
+            "hardware",
+            "allowance",
+            "exclusion",
+            "by_others"
+          ]
+        },
+        "source_id": { "type": "string", "minLength": 1 },
+        "item_id": { "type": "string", "minLength": 1 },
+        "quantity": { "type": "integer" },
+        "mark": { "type": "string" },
+        "description": { "type": "string" },
+        "source_evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        }
+      }
+    },
+    "fabricatedPart": {
+      "allOf": [
+        { "$ref": "#/$defs/itemBase" },
+        {
+          "type": "object",
+          "required": ["intent"],
+          "properties": {
+            "intent": { "const": "fabricated_part" },
+            "material": { "type": "string" },
+            "grade": { "type": "string" },
+            "geometry": { "$ref": "#/$defs/geometry" },
+            "designation": { "type": "string" },
+            "length_ft": { "type": "number" },
+            "unit_weight_plf": { "type": "number" },
+            "total_weight_lbs": { "type": "number" },
+            "connections": { "type": "string" },
+            "notes": { "type": "string" },
+            "identity_warning": { "type": "boolean" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "purchased": {
+      "allOf": [
+        { "$ref": "#/$defs/itemBase" },
+        {
+          "type": "object",
+          "required": ["intent"],
+          "properties": {
+            "intent": { "enum": ["purchased_stock", "hardware"] },
+            "material": { "type": "string" },
+            "grade": { "type": "string" },
+            "specification": { "type": "string" },
+            "dimensions": { "type": "object" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "allowance": {
+      "allOf": [
+        { "$ref": "#/$defs/itemBase" },
+        {
+          "type": "object",
+          "required": ["intent", "allowance_basis"],
+          "properties": {
+            "intent": { "const": "allowance" },
+            "allowance_basis": {
+              "type": "object",
+              "required": ["kind", "value", "applies_to"],
+              "properties": {
+                "kind": { "enum": ["percent", "fixed_weight"] },
+                "value": { "type": "number" },
+                "applies_to": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "nonSupply": {
+      "allOf": [
+        { "$ref": "#/$defs/itemBase" },
+        {
+          "type": "object",
+          "required": ["intent", "reason"],
+          "properties": {
+            "intent": { "enum": ["exclusion", "by_others"] },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "item": {
+      "oneOf": [
+        { "$ref": "#/$defs/fabricatedPart" },
+        { "$ref": "#/$defs/purchased" },
+        { "$ref": "#/$defs/allowance" },
+        { "$ref": "#/$defs/nonSupply" }
+      ]
+    },
+    "stock": {
+      "type": "object",
+      "required": [
+        "stock_kind",
+        "material",
+        "grade",
+        "width",
+        "height",
+        "thickness",
+        "quantity"
+      ],
+      "properties": {
+        "stock_kind": { "enum": ["on_hand", "purchasable"] },
+        "inventory_id": { "type": "string", "minLength": 1 },
+        "material": { "type": "string", "minLength": 1 },
+        "grade": { "type": "string", "minLength": 1 },
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "thickness": { "type": "number" },
+        "quantity": { "type": "integer" },
+        "status": { "enum": ["available", "reserved", "unavailable"] },
+        "measured_at": { "type": "string", "format": "date" },
+        "source": { "type": "string" },
+        "reviewer_confirmation": {
+          "type": "object",
+          "required": ["actor", "timestamp", "estimate_hash"],
+          "properties": {
+            "actor": { "type": "string", "minLength": 1 },
+            "timestamp": { "type": "string", "format": "date-time" },
+            "estimate_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "commercialBasis": {
+      "type": "object",
+      "required": ["currency", "costs"],
+      "properties": {
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "costs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "cost_id",
+              "amount",
+              "currency",
+              "unit_basis",
+              "effective_date",
+              "source"
+            ],
+            "properties": {
+              "cost_id": { "type": "string", "minLength": 1 },
+              "amount": { "type": "number" },
+              "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+              "unit_basis": { "type": "string", "minLength": 1 },
+              "effective_date": { "type": "string", "format": "date" },
+              "source": { "type": "string", "minLength": 1 },
+              "synthetic": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "finding_id",
+        "code",
+        "severity",
+        "path",
+        "message",
+        "relevant_hash"
+      ],
+      "properties": {
+        "finding_id": { "type": "string", "minLength": 1 },
+        "code": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["blocker", "warning", "info"] },
+        "path": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "relevant_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "review": {
+      "type": "object",
+      "required": ["status", "findings", "acknowledgements"],
+      "properties": {
+        "status": {
+          "enum": ["draft", "review_required", "validated", "invalid"]
+        },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/finding" }
+        },
+        "acknowledgements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "finding_id",
+              "actor",
+              "timestamp",
+              "disposition",
+              "input_hash"
+            ],
+            "properties": {
+              "finding_id": { "type": "string", "minLength": 1 },
+              "actor": { "type": "string", "minLength": 1 },
+              "timestamp": { "type": "string", "format": "date-time" },
+              "disposition": {
+                "enum": ["accepted", "rejected", "deferred"]
+              },
+              "input_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "lineage": {
+      "type": "object",
+      "required": ["source_type", "source_hash", "configuration_hash"],
+      "properties": {
+        "source_type": { "type": "string", "minLength": 1 },
+        "source_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "configuration_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generated_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

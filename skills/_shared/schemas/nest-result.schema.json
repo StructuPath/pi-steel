@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://structupath.ai/schemas/pi-steel/nest-result-1.0.0.json",
+  "title": "pi-steel canonical nest result",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "estimate_input_hash",
+    "configuration_hash",
+    "outcome",
+    "package_status",
+    "groups",
+    "unplaced"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "estimate_input_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "configuration_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "outcome": {
+      "enum": [
+        "ready",
+        "review_required",
+        "blocked",
+        "dependency_missing",
+        "usage_or_internal_error"
+      ]
+    },
+    "package_status": {
+      "enum": [
+        "draft",
+        "review_required",
+        "validated",
+        "nested_partial",
+        "nest_verified",
+        "rfq_draft_review_required",
+        "rfq_ready_for_review"
+      ]
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group_id", "material", "grade", "thickness", "placements"],
+        "properties": {
+          "group_id": { "type": "string", "minLength": 1 },
+          "material": { "type": "string", "minLength": 1 },
+          "grade": { "type": "string", "minLength": 1 },
+          "thickness": { "type": "number", "exclusiveMinimum": 0 },
+          "placements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["placement_id", "item_id", "instance_id", "stock_id"],
+              "properties": {
+                "placement_id": { "type": "string", "minLength": 1 },
+                "item_id": { "type": "string", "minLength": 1 },
+                "instance_id": { "type": "string", "minLength": 1 },
+                "stock_id": { "type": "string", "minLength": 1 },
+                "x": { "type": "number" },
+                "y": { "type": "number" },
+                "rotated": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unplaced": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["instance_id", "reason"],
+        "properties": {
+          "instance_id": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
