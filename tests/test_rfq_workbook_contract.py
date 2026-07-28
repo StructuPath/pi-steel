@@ -54,6 +54,7 @@ def test_workbook_structure_formulas_styles_and_draft_metadata(tmp_path, monkeyp
     assert sheet.column_dimensions["C"].width == 38
     assert sheet["I8"].fill.fgColor.rgb.endswith("BF8F00")
     assert sheet["I10"].fill.fgColor.rgb.endswith("FFF2CC")
+    assert "DRAFT — NOT SENT OR AWARDED" in sheet["A3"].value
     total_row = result["contract"]["total_row"]
     first_row = result["contract"]["first_material_row"]
     last_row = result["contract"]["last_material_row"]

@@ -707,6 +707,7 @@ def compile_workbook(
         f"{profile['city_state']}"
     )
     sheet["A3"] = (
+        "Document Status: DRAFT — NOT SENT OR AWARDED | "
         f"Date Issued: {issued_date} | Response Requested By: _______________ | "
         f"Project Location: {project_location}"
     )

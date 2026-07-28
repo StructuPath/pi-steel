@@ -1,4 +1,3 @@
-# Optional PDF, PNG, and DXF rendering tier.
-ezdxf>=1.3,<2
+# Optional PDF and PNG rendering tier.
 matplotlib>=3.9,<4
 numpy>=2.1,<3
