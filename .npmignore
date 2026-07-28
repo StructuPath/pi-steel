@@ -7,6 +7,7 @@ local-data/
 customer-data/
 vendor-data/
 outputs/
+out/
 *.local.json
 *.private.json
 *.xlsx

@@ -106,3 +106,82 @@ def test_semantic_projection_matches_golden(tmp_path, monkeypatch):
         }
         for sheet in actual["sheets"]
     ] == expected["sheets"]
+
+
+def test_formula_like_input_is_literal_but_compiler_formulas_remain_formulas(
+    tmp_path, monkeypatch
+):
+    package = load("estimate-package.json")
+    package["project"]["name"] = "=1+1"
+    package["items"][0]["description"] = "@SUM(1,1)"
+    normalized = rfq.normalize_canonical_package(package)
+    profile = load("synthetic-profile.json")
+    profile["terms_template"]["content"] = "+DANGEROUS"
+    profile["terms_template"]["content_hash"] = hashlib.sha256(
+        profile["terms_template"]["content"].encode()
+    ).hexdigest()
+    monkeypatch.setattr(rfq.recalc, "libreoffice_bake", lambda path: False)
+
+    result = rfq.compile_workbook(
+        normalized,
+        profile,
+        nest_handoff=None,
+        issued_date="2026-07-28",
+        project_location="-1+1",
+        output_directory=tmp_path,
+        profile_source="environment",
+        bake=True,
+    )
+
+    workbook = openpyxl.load_workbook(result["workbook_path"], data_only=False)
+    sheet = workbook["RFQ Draft"]
+    untrusted = [
+        cell
+        for row in sheet.iter_rows()
+        for cell in row
+        if isinstance(cell.value, str)
+        and any(token in cell.value for token in ("=1+1", "@SUM", "+DANGEROUS"))
+    ]
+    assert untrusted
+    assert all(cell.data_type == "s" and cell.value.startswith("'") for cell in untrusted)
+    total_row = result["contract"]["total_row"]
+    assert sheet[f"H{total_row}"].data_type == "f"
+    assert sheet[f"J{total_row}"].data_type == "f"
+
+
+def test_canonical_review_findings_and_assumptions_are_visible(
+    tmp_path, monkeypatch
+):
+    package = load("estimate-package.json")
+    package["assumptions"] = [
+        {
+            "assumption_id": "SYNTHETIC-ASSUMPTION-1",
+            "text": "Synthetic basis requires confirmation.",
+            "status": "unresolved",
+        }
+    ]
+    normalized = rfq.normalize_canonical_package(package)
+    profile = load("synthetic-profile.json")
+    monkeypatch.setattr(rfq.recalc, "libreoffice_bake", lambda path: False)
+
+    result = rfq.compile_workbook(
+        normalized,
+        profile,
+        nest_handoff=None,
+        issued_date="2026-07-28",
+        project_location="Example City, ST",
+        output_directory=tmp_path,
+        profile_source="environment",
+        bake=True,
+    )
+
+    workbook = openpyxl.load_workbook(result["workbook_path"], data_only=False)
+    visible_text = " ".join(
+        str(cell.value)
+        for row in workbook["RFQ Draft"].iter_rows()
+        for cell in row
+        if cell.value is not None
+    )
+    assert "REVIEW NOTES / ASSUMPTIONS" in visible_text
+    assert "SYNTHETIC-ASSUMPTION-1" in visible_text
+    assert "unresolved" in visible_text

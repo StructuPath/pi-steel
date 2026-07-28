@@ -1,6 +1,6 @@
 """Shared deterministic runtime primitives for pi-steel skills."""
 
-from .cli import StageArgumentParser, package_version
+from .cli import StageArgumentParser, package_version, publish_failure_diagnostic
 from .contracts import (
     ESTIMATE_PACKAGE_VERSION,
     ITEM_INTENTS,
@@ -41,6 +41,7 @@ __all__ = [
     "placement_ids",
     "outcome_exit_code",
     "package_version",
+    "publish_failure_diagnostic",
     "sha256_bytes",
     "sha256_file",
 ]

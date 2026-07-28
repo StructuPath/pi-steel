@@ -64,6 +64,8 @@
       "required": [
         "job_name",
         "customer",
+        "project_id",
+        "revision_id",
         "kerf_in",
         "part_gap_in",
         "edge_margin_in",
@@ -73,10 +75,12 @@
       "properties": {
         "job_name": { "type": "string" },
         "customer": { "type": "string" },
+        "project_id": { "type": "string", "minLength": 1 },
+        "revision_id": { "type": "string", "minLength": 1 },
         "kerf_in": { "type": "number", "minimum": 0 },
         "part_gap_in": { "type": "number", "minimum": 0 },
         "edge_margin_in": { "type": "number", "minimum": 0 },
-        "density_lb_in3": { "type": "number", "minimum": 0 },
+        "density_lb_in3": { "type": "number", "exclusiveMinimum": 0 },
         "unit_system": { "type": "string" }
       },
       "additionalProperties": false
@@ -104,7 +108,7 @@
           "group_id": { "type": "string", "minLength": 1 },
           "material": { "type": ["string", "null"] },
           "grade": { "type": ["string", "null"] },
-          "thickness": { "type": "number" },
+          "thickness": { "type": "number", "exclusiveMinimum": 0 },
           "placements": {
             "type": "array",
             "items": { "$ref": "#/$defs/placement" }
@@ -123,9 +127,9 @@
       },
       "additionalProperties": false
     },
-    "total_plate_weight_lb": { "type": "number" },
-    "total_part_weight_lb": { "type": "number" },
-    "total_scrap_weight_lb": { "type": "number" },
+    "total_plate_weight_lb": { "type": "number", "minimum": 0 },
+    "total_part_weight_lb": { "type": "number", "minimum": 0 },
+    "total_scrap_weight_lb": { "type": "number", "minimum": 0 },
     "cost": {
       "type": "object",
       "required": ["status", "total"],
@@ -133,16 +137,19 @@
         "status": {
           "enum": ["known", "not_provided", "incomplete_unplaced"]
         },
-        "total": { "type": ["number", "null"] }
+        "total": { "type": ["number", "null"], "minimum": 0 }
       },
       "additionalProperties": false
     },
-    "total_material_cost": { "type": ["number", "null"] },
+    "total_material_cost": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
     "cost_known": { "type": "boolean" },
     "total_holes": { "type": "integer", "minimum": 0 },
     "part_net_cost": {
       "type": "object",
-      "additionalProperties": { "type": "number" }
+      "additionalProperties": { "type": "number", "minimum": 0 }
     },
     "plate_reports": {
       "type": "array",
@@ -255,8 +262,8 @@
         "placement_id": { "type": "string" },
         "stock_id": { "type": "string" },
         "label": { "type": "string" },
-        "x": { "type": "number" },
-        "y": { "type": "number" },
+        "x": { "type": "number", "minimum": 0 },
+        "y": { "type": "number", "minimum": 0 },
         "w": { "type": "number", "exclusiveMinimum": 0 },
         "h": { "type": "number", "exclusiveMinimum": 0 },
         "rotated": { "type": "boolean" },
@@ -264,8 +271,8 @@
         "ow": { "type": "number", "exclusiveMinimum": 0 },
         "oh": { "type": "number", "exclusiveMinimum": 0 },
         "holes": { "type": "array", "items": { "type": "object" } },
-        "base_area": { "type": "number" },
-        "holes_area": { "type": "number" },
+        "base_area": { "type": "number", "exclusiveMinimum": 0 },
+        "holes_area": { "type": "number", "minimum": 0 },
         "material": { "type": "string" },
         "grade": { "type": "string" },
         "thickness": { "type": "number", "exclusiveMinimum": 0 }
@@ -326,10 +333,13 @@
         "num_holes": { "type": "integer", "minimum": 0 },
         "packing_utilization_pct": { "$ref": "#/$defs/metric" },
         "net_material_yield_pct": { "$ref": "#/$defs/metric" },
-        "plate_weight_lb": { "type": "number" },
-        "part_weight_lb": { "type": "number" },
-        "scrap_weight_lb": { "type": "number" },
-        "plate_cost": { "type": ["number", "null"] },
+        "plate_weight_lb": { "type": "number", "minimum": 0 },
+        "part_weight_lb": { "type": "number", "minimum": 0 },
+        "scrap_weight_lb": { "type": "number", "minimum": 0 },
+        "plate_cost": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
         "cost_basis": {
           "type": ["string", "null"],
           "enum": ["per_sheet", "per_pound", null]
@@ -361,16 +371,71 @@
       "required": [
         "schema_version",
         "source_nest_result_version",
+        "project_id",
+        "revision_id",
+        "estimate_input_hash",
         "geometry_readiness",
         "rows"
       ],
       "properties": {
         "schema_version": { "const": "1.0.0" },
         "source_nest_result_version": { "const": "1.0.0" },
+        "project_id": { "type": "string", "minLength": 1 },
+        "revision_id": { "type": "string", "minLength": 1 },
+        "estimate_input_hash": { "$ref": "#/$defs/hash" },
         "geometry_readiness": {
           "enum": ["geometry_verified", "reference_only", "diagnostic"]
         },
-        "rows": { "type": "array", "items": { "type": "object" } }
+        "rows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/rfqHandoffRow" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "rfqHandoffRow": {
+      "type": "object",
+      "required": [
+        "stock_id",
+        "stock_name",
+        "material",
+        "grade",
+        "thickness",
+        "sheets_needed",
+        "sheet_size",
+        "packing_utilization_pct",
+        "nesting_plan",
+        "drop_notes",
+        "remnant_candidates",
+        "total_cost",
+        "geometry_readiness"
+      ],
+      "properties": {
+        "stock_id": { "type": "string", "minLength": 1 },
+        "stock_name": { "type": "string", "minLength": 1 },
+        "material": { "type": "string", "minLength": 1 },
+        "grade": { "type": "string", "minLength": 1 },
+        "thickness": { "type": "number", "exclusiveMinimum": 0 },
+        "sheets_needed": { "type": "integer", "minimum": 1 },
+        "sheet_size": { "type": "string", "minLength": 1 },
+        "packing_utilization_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "nesting_plan": { "type": "string", "minLength": 1 },
+        "drop_notes": { "type": "string", "minLength": 1 },
+        "remnant_candidates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/remnantCandidate" }
+        },
+        "total_cost": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "geometry_readiness": {
+          "enum": ["geometry_verified", "reference_only", "diagnostic"]
+        }
       },
       "additionalProperties": false
     }

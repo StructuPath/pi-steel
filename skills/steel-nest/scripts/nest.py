@@ -61,6 +61,7 @@ from pi_steel import (  # noqa: E402
     outcome_exit_code,
     package_version,
     placement_ids,
+    publish_failure_diagnostic,
     sha256_bytes,
 )
 from pi_steel.contracts import content_hash, fallback_source_id, instance_ids  # noqa: E402
@@ -73,6 +74,14 @@ from pi_steel.geometry_verify import (  # noqa: E402
 
 STEEL_DENSITY = 0.2836  # lb/in^3, A36 mild steel
 NEST_ALGORITHM_VERSION = "maxrects-bssf-u3"
+
+
+def _valid_hash(value):
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 # --------------------------------------------------------------------------
@@ -314,6 +323,32 @@ def normalize_job(job):
 
     project_id = job.get("project_id") or job.get("job_name") or "LEGACY-NEST"
     revision_id = job.get("revision_id", "LEGACY-REVISION")
+    for identity_field, value in (
+        ("project_id", project_id),
+        ("revision_id", revision_id),
+    ):
+        if not isinstance(value, str) or not value:
+            findings.append(
+                _validation_finding(
+                    f"invalid_{identity_field}",
+                    f"$.{identity_field}",
+                    f"{identity_field} must be a non-empty string.",
+                )
+            )
+            if identity_field == "project_id":
+                project_id = "LEGACY-NEST"
+            else:
+                revision_id = "LEGACY-REVISION"
+    estimate_input_hash = job.get("estimate_input_hash")
+    if estimate_input_hash is not None and not _valid_hash(estimate_input_hash):
+        findings.append(
+            _validation_finding(
+                "invalid_estimate_input_hash",
+                "$.estimate_input_hash",
+                "Estimate input hash must be a lowercase SHA-256 value.",
+            )
+        )
+        estimate_input_hash = None
     default_material = job.get("material")
     default_grade = job.get("grade")
     default_thickness = settings.get("thickness_in")
@@ -566,6 +601,9 @@ def normalize_job(job):
     normalized = {
         "job_name": job.get("job_name", "Nesting job"),
         "customer": job.get("customer", ""),
+        "project_id": project_id,
+        "revision_id": revision_id,
+        "estimate_input_hash": estimate_input_hash,
         "unit_system": unit_system or "unspecified",
         "settings": {
             "kerf_in": kerf,
@@ -794,6 +832,7 @@ def _summarize(
     validation_findings,
     normalized_hash,
 ):
+    estimate_input_hash = normalized.get("estimate_input_hash") or normalized_hash
     plate_reports = []
     total_plate_area = total_packing_area = total_net_area = 0.0
     total_plate_weight = total_part_weight = 0.0
@@ -997,13 +1036,15 @@ def _summarize(
         "schema_version": NEST_RESULT_VERSION,
         "algorithm_version": NEST_ALGORITHM_VERSION,
         "normalized_input_hash": normalized_hash,
-        "estimate_input_hash": normalized_hash,
+        "estimate_input_hash": estimate_input_hash,
         "configuration_hash": configuration_hash,
         "outcome": "blocked",
         "package_status": "draft",
         "meta": {
             "job_name": normalized["job_name"],
             "customer": normalized["customer"],
+            "project_id": normalized["project_id"],
+            "revision_id": normalized["revision_id"],
             "kerf_in": kerf,
             "part_gap_in": gap,
             "edge_margin_in": margin,
@@ -1122,6 +1163,9 @@ def rfq_nesting_block(res):
     return {
         "schema_version": "1.0.0",
         "source_nest_result_version": NEST_RESULT_VERSION,
+        "project_id": res["meta"]["project_id"],
+        "revision_id": res["meta"]["revision_id"],
+        "estimate_input_hash": res["estimate_input_hash"],
         "geometry_readiness": res["geometry_readiness"],
         "rows": blocks,
     }
@@ -1581,10 +1625,15 @@ def publish_nest_run(job, args):
 # --------------------------------------------------------------------------
 def main(argv=None):
     ap = StageArgumentParser(description="Steel plate nesting engine")
+    ap.configure_failure_diagnostics(
+        stage="steel-nest",
+        entry_file=__file__,
+        input_option="--job",
+    )
     ap.add_argument("--job", required=True)
     ap.add_argument(
         "--out",
-        default="out",
+        default="outputs",
         help="Publication root; each invocation writes an isolated runs/<run-id>/",
     )
     ap.add_argument("--no-render", action="store_true", help="Skip PDF/PNG/DXF")
@@ -1596,9 +1645,26 @@ def main(argv=None):
     ap.add_argument("--run-id", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
 
-    with open(args.job, encoding="utf-8") as f:
-        job = json.load(f)
-    result, qa_report, report, final_path = publish_nest_run(job, args)
+    try:
+        with open(args.job, encoding="utf-8") as f:
+            job = json.load(f)
+        result, qa_report, report, final_path = publish_nest_run(job, args)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        diagnostic_path = publish_failure_diagnostic(
+            args.out,
+            stage="steel-nest",
+            input_path=args.job,
+            error=exc,
+            tool_version=package_version(__file__),
+            run_id=args.run_id,
+        )
+        suffix = (
+            f"; diagnostic published: {diagnostic_path}"
+            if diagnostic_path is not None
+            else "; diagnostic publication unavailable"
+        )
+        print(f"Nesting failed: {exc}{suffix}", file=sys.stderr)
+        return 1
     print(report)
     print(f"\nPublished {qa_report['run_outcome']} run: {final_path}")
     if result["burn_dxf_warnings"]:

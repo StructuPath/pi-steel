@@ -244,3 +244,31 @@ def test_cli_ready_and_review_runs_publish_draft_workbooks(
     )
     workbook = openpyxl.load_workbook(next(run_path.glob("*.xlsx")))
     assert workbook["RFQ Metadata"]["B2"].value == "DRAFT — NOT SENT OR AWARDED"
+
+
+def test_nest_handoff_blocks_diagnostic_stale_and_malformed_contracts():
+    normalized = rfq.normalize_canonical_package(load("estimate-package.json"))
+    diagnostic = load("nest-handoff.json")
+    diagnostic["geometry_readiness"] = "diagnostic"
+    assert "diagnostic_nest_handoff" in {
+        finding["code"]
+        for finding in rfq.validate_nest_handoff(
+            diagnostic, expected=normalized
+        )
+    }
+
+    stale = load("nest-handoff.json")
+    stale["revision_id"] = "SYNTHETIC-STALE-REVISION"
+    assert "stale_nest_handoff" in {
+        finding["code"]
+        for finding in rfq.validate_nest_handoff(stale, expected=normalized)
+    }
+
+    malformed = load("nest-handoff.json")
+    malformed["rows"] = [{"stock_id": "SYNTHETIC-INCOMPLETE"}]
+    findings = rfq.validate_nest_handoff(malformed, expected=normalized)
+    assert any(
+        finding["code"] == "invalid_nest_handoff_contract"
+        and finding["path"].startswith("$.rows[0]")
+        for finding in findings
+    )

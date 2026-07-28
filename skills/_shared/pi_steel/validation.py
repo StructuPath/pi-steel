@@ -131,6 +131,83 @@ def _schema_findings(
     return findings
 
 
+def _nonfinite_number_findings(
+    value: Any,
+    input_hash: str,
+    *,
+    path: str = "$",
+) -> list[dict[str, Any]]:
+    """Reject non-JSON numeric values throughout the canonical package.
+
+    Python's JSON and JSON Schema implementations can accept NaN and infinity
+    even though they are not interoperable JSON values. Keep this domain guard
+    recursive so newly added numeric contract fields are protected by default.
+    """
+    findings: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            findings.extend(
+                _nonfinite_number_findings(
+                    child,
+                    input_hash,
+                    path=f"{path}.{key}",
+                )
+            )
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            findings.extend(
+                _nonfinite_number_findings(
+                    child,
+                    input_hash,
+                    path=f"{path}[{index}]",
+                )
+            )
+    elif isinstance(value, float) and not math.isfinite(value):
+        _add(
+            findings,
+            input_hash,
+            "nonfinite_number",
+            "blocker",
+            path,
+            "Numeric values must be finite JSON numbers.",
+        )
+    return findings
+
+
+def _merge_supplied_review_findings(
+    package: dict[str, Any],
+    input_hash: str,
+    findings: list[dict[str, Any]],
+) -> None:
+    """Carry canonical review findings forward and expose stale review state."""
+    existing = {
+        (finding["finding_id"], finding["relevant_hash"])
+        for finding in findings
+    }
+    for index, supplied in enumerate(
+        package.get("review", {}).get("findings", [])
+    ):
+        key = (supplied["finding_id"], supplied["relevant_hash"])
+        if key not in existing:
+            findings.append(dict(supplied))
+            existing.add(key)
+        if supplied["relevant_hash"] != input_hash:
+            stale = _finding(
+                code="stale_review_finding",
+                severity="blocker",
+                path=f"$.review.findings[{index}].relevant_hash",
+                message=(
+                    f"Review finding {supplied['finding_id']!r} was produced for "
+                    "a different estimate input and must be regenerated."
+                ),
+                relevant_hash=input_hash,
+            )
+            stale_key = (stale["finding_id"], stale["relevant_hash"])
+            if stale_key not in existing:
+                findings.append(stale)
+                existing.add(stale_key)
+
+
 def _geometry_findings(
     item: dict[str, Any],
     index: int,
@@ -234,8 +311,33 @@ def validate_estimate_package(package: dict[str, Any]) -> ValidationResult:
         )
         return ValidationResult("invalid", input_hash, [finding], [finding])
 
-    findings = _schema_findings(package, input_hash)
-    if findings:
+    findings = _nonfinite_number_findings(package, input_hash)
+    schema_findings = _schema_findings(package, input_hash)
+    if schema_findings:
+        findings.extend(schema_findings)
+        # Retain the pre-existing field-specific diagnostics for the common
+        # scalar errors that are now also constrained directly by the schema.
+        items = package.get("items", [])
+        if isinstance(items, list):
+            for index, item in enumerate(items):
+                if not isinstance(item, dict):
+                    continue
+                quantity = item.get("quantity")
+                if (
+                    not isinstance(quantity, int)
+                    or isinstance(quantity, bool)
+                    or quantity <= 0
+                ):
+                    _add(
+                        findings,
+                        input_hash,
+                        "invalid_quantity",
+                        "blocker",
+                        f"$.items[{index}].quantity",
+                        "Quantity must be a positive integer.",
+                    )
+                if item.get("intent") == "fabricated_part":
+                    _geometry_findings(item, index, input_hash, findings)
         return ValidationResult("invalid", input_hash, findings, findings)
     source_ids: dict[str, int] = {}
     item_ids: dict[str, int] = {}
@@ -382,6 +484,22 @@ def validate_estimate_package(package: dict[str, Any]) -> ValidationResult:
                 f"$.commercial_basis.costs[{index}]",
                 "Cost currency, unit basis, effective date, and source must be preserved.",
             )
+
+    for index, assumption in enumerate(package.get("assumptions", [])):
+        if assumption.get("status") == "unresolved":
+            _add(
+                findings,
+                input_hash,
+                "unresolved_assumption",
+                "warning",
+                f"$.assumptions[{index}]",
+                (
+                    f"Assumption {assumption['assumption_id']!r} remains "
+                    "unresolved and requires estimator review."
+                ),
+            )
+
+    _merge_supplied_review_findings(package, input_hash, findings)
 
     acknowledgements = package.get("review", {}).get("acknowledgements", [])
     accepted_findings = {

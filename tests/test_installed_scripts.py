@@ -26,6 +26,7 @@ def test_packed_npm_artifact_contains_runtime_and_runs_doctor(tmp_path):
 
     expected = {
         "package/scripts/doctor.py",
+        "package/scripts/check-public-data.py",
         "package/skills/_shared/bootstrap.py",
         "package/skills/_shared/pi_steel/__init__.py",
         "package/skills/_shared/pi_steel/run_manifest.py",
@@ -75,6 +76,18 @@ def test_packed_npm_artifact_contains_runtime_and_runs_doctor(tmp_path):
     )
     assert provenance.returncode == 0, provenance.stdout + provenance.stderr
     assert json.loads(provenance.stdout)["release_readiness"] == "blocked"
+
+    privacy = subprocess.run(
+        [
+            sys.executable,
+            installed_root / "scripts" / "check-public-data.py",
+        ],
+        cwd=installed_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert privacy.returncode == 0, privacy.stdout + privacy.stderr
 
     environment["PI_STEEL_CONFIG"] = str(
         ROOT / "tests" / "fixtures" / "pipeline" / "synthetic-profile.json"

@@ -106,6 +106,198 @@ def test_contract_schemas_are_draft_2020_12_and_accept_canonical_package():
     )
 
 
+def test_v1_contract_rejects_metric_and_nonpositive_commercial_values():
+    package = valid_package()
+    package["unit_system"] = "metric"
+    assert "schema_validation" in blocker_codes(
+        validate_estimate_package(package)
+    )
+
+    package = valid_package()
+    package["commercial_basis"]["costs"].append(
+        {
+            "cost_id": "SYNTHETIC-ZERO-COST",
+            "amount": 0,
+            "currency": "USD",
+            "unit_basis": "per_pound",
+            "effective_date": "2026-07-28",
+            "source": "synthetic_test_input",
+        }
+    )
+    assert "schema_validation" in blocker_codes(
+        validate_estimate_package(package)
+    )
+
+
+def test_purchase_dimensions_are_closed_typed_and_support_inventory_linkage():
+    package = valid_package()
+    package["items"].append(
+        {
+            "intent": "purchased_stock",
+            "source_id": "SYNTHETIC-SRC-STOCK",
+            "item_id": "item:synthetic-stock",
+            "quantity": 1,
+            "material": "carbon_steel",
+            "grade": "A36",
+            "dimensions": {
+                "category": "PLATE STOCK",
+                "size": "48 x 96 x 0.5",
+                "purchase_weight_lbs": 652,
+                "stock_length": 96,
+                "width": 48,
+                "height": 96,
+                "thickness": 0.5,
+                "replaces_item_ids": [package["items"][0]["item_id"]],
+                "inventory_id": "SYNTHETIC-INV-1",
+                "stock_id": "SYNTHETIC-STOCK-1",
+            },
+        }
+    )
+    assert validate_estimate_package(package).status == "review_required"
+
+    package["items"][-1]["dimensions"]["purchase_weight_lbs"] = -1
+    assert "schema_validation" in blocker_codes(
+        validate_estimate_package(package)
+    )
+    package["items"][-1]["dimensions"]["purchase_weight_lbs"] = 652
+    package["items"][-1]["dimensions"]["untyped_business_field"] = "private"
+    assert "schema_validation" in blocker_codes(
+        validate_estimate_package(package)
+    )
+
+
+def test_nonfinite_number_guard_covers_nested_non_geometry_numbers():
+    package = valid_package()
+    package["commercial_basis"]["costs"].append(
+        {
+            "cost_id": "SYNTHETIC-NAN-COST",
+            "amount": math.nan,
+            "currency": "USD",
+            "unit_basis": "per_pound",
+            "effective_date": "2026-07-28",
+            "source": "synthetic_test_input",
+        }
+    )
+    result = validate_estimate_package(package)
+    assert "nonfinite_number" in blocker_codes(result)
+    assert any(
+        finding["path"] == "$.commercial_basis.costs[0].amount"
+        for finding in result.findings
+    )
+
+
+def test_traceability_fields_and_unresolved_assumptions_are_review_visible():
+    package = valid_package()
+    package["project"].update(
+        estimator="Synthetic Estimator",
+        estimate_as_of="2026-07-28",
+    )
+    package["items"][0]["quantity_basis"] = {
+        "method": "drawing_count",
+        "description": "Counted from the synthetic detail.",
+        "source_evidence": [
+            {
+                "source": "SYNTHETIC-DRAWING",
+                "locator": "SYNTHETIC-DETAIL-1",
+                "sheet": "S1",
+                "detail": "1",
+            }
+        ],
+    }
+    package["assumptions"] = [
+        {
+            "assumption_id": "SYNTHETIC-ASSUMPTION-1",
+            "text": "Synthetic finish remains to be confirmed.",
+            "status": "unresolved",
+        }
+    ]
+    result = validate_estimate_package(package)
+    assert result.status == "review_required"
+    assert "unresolved_assumption" in warning_codes(result)
+
+
+def test_supplied_review_findings_merge_and_stale_hash_is_a_blocker():
+    package = valid_package()
+    current_hash = validate_estimate_package(package).input_hash
+    supplied = {
+        "finding_id": "finding:synthetic-supplied",
+        "code": "synthetic_review_note",
+        "severity": "warning",
+        "path": "$.items[0]",
+        "message": "Synthetic estimator note.",
+        "relevant_hash": current_hash,
+    }
+    package["review"]["findings"] = [supplied]
+    current = validate_estimate_package(package)
+    assert supplied in current.findings
+    assert supplied in current.active_findings
+
+    package["review"]["findings"][0]["relevant_hash"] = "c" * 64
+    stale = validate_estimate_package(package)
+    assert "stale_review_finding" in blocker_codes(stale)
+    stale_finding = next(
+        finding
+        for finding in stale.findings
+        if finding["code"] == "stale_review_finding"
+    )
+    acknowledge_finding(
+        package,
+        stale_finding,
+        actor="Example Reviewer",
+        timestamp="2026-07-28T12:00:00Z",
+        disposition="accepted",
+    )
+    assert "stale_review_finding" in blocker_codes(
+        validate_estimate_package(package)
+    )
+
+
+def test_rfq_handoff_schema_requires_lineage_and_closed_typed_rows():
+    nest_schema = json.loads(
+        (SHARED / "schemas" / "nest-result.schema.json").read_text()
+    )
+    handoff_schema = {
+        "$schema": nest_schema["$schema"],
+        "$ref": "#/$defs/rfqHandoff",
+        "$defs": nest_schema["$defs"],
+    }
+    validator = jsonschema.Draft202012Validator(handoff_schema)
+    handoff = {
+        "schema_version": "1.0.0",
+        "source_nest_result_version": "1.0.0",
+        "project_id": "SYNTHETIC-CONTRACT-001",
+        "revision_id": "SYNTHETIC-REV-A",
+        "estimate_input_hash": "a" * 64,
+        "geometry_readiness": "geometry_verified",
+        "rows": [
+            {
+                "stock_id": "SYNTHETIC-STOCK-1",
+                "stock_name": "Synthetic Plate",
+                "material": "carbon_steel",
+                "grade": "A36",
+                "thickness": 0.5,
+                "sheets_needed": 1,
+                "sheet_size": "48x96",
+                "packing_utilization_pct": 75,
+                "nesting_plan": "1 synthetic sheet",
+                "drop_notes": "No certified remnants.",
+                "remnant_candidates": [],
+                "total_cost": None,
+                "geometry_readiness": "geometry_verified",
+            }
+        ],
+    }
+    validator.validate(handoff)
+
+    missing_lineage = copy.deepcopy(handoff)
+    del missing_lineage["estimate_input_hash"]
+    assert list(validator.iter_errors(missing_lineage))
+    malformed_row = copy.deepcopy(handoff)
+    malformed_row["rows"][0]["sheets_needed"] = "one"
+    malformed_row["rows"][0]["private_note"] = "must not pass through"
+    assert list(validator.iter_errors(malformed_row))
+
+
 def test_legacy_bom_preserves_marks_grades_lengths_weights_and_explicit_ids():
     package = adapt_legacy_bom_csv(
         FIXTURES / "legacy-bom.csv",

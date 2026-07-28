@@ -75,6 +75,80 @@ def group_plate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def _finite_placement_values(placement: dict[str, Any]) -> bool:
+    return all(
+        isinstance(placement.get(field), (int, float))
+        and math.isfinite(placement[field])
+        for field in ("x", "y", "w", "h")
+    )
+
+
+def _placements_separated(
+    first: dict[str, Any],
+    second: dict[str, Any],
+    clearance: float,
+    epsilon: float,
+) -> bool:
+    return (
+        first["x"] + first["w"] + clearance <= second["x"] + epsilon
+        or second["x"] + second["w"] + clearance <= first["x"] + epsilon
+        or first["y"] + first["h"] + clearance <= second["y"] + epsilon
+        or second["y"] + second["h"] + clearance <= first["y"] + epsilon
+    )
+
+
+def _overlap_candidate_pairs(
+    placements: list[dict[str, Any]],
+    clearance: float,
+    epsilon: float,
+) -> list[tuple[int, int]]:
+    """Return deterministic overlap pairs without scanning every valid pair."""
+    numeric = {
+        index for index, placement in enumerate(placements)
+        if _finite_placement_values(placement)
+    }
+    sweepable = {
+        index for index in numeric
+        if placements[index]["w"] > 0 and placements[index]["h"] > 0
+    }
+    candidates: set[tuple[int, int]] = set()
+    active: list[int] = []
+    for current_index in sorted(
+        sweepable, key=lambda index: (placements[index]["x"], index)
+    ):
+        current = placements[current_index]
+        active = [
+            index
+            for index in active
+            if (
+                placements[index]["x"]
+                + placements[index]["w"]
+                + clearance
+                > current["x"] + epsilon
+            )
+        ]
+        for other_index in active:
+            other = placements[other_index]
+            if not (
+                other["y"] + other["h"] + clearance <= current["y"] + epsilon
+                or current["y"] + current["h"] + clearance
+                <= other["y"] + epsilon
+            ):
+                candidates.add(
+                    (min(other_index, current_index), max(other_index, current_index))
+                )
+        active.append(current_index)
+
+    nonsweepable = numeric - sweepable
+    for first_index in sorted(nonsweepable):
+        for second_index in sorted(numeric):
+            if first_index < second_index:
+                candidates.add((first_index, second_index))
+            elif second_index < first_index and second_index in sweepable:
+                candidates.add((second_index, first_index))
+    return sorted(candidates)
+
+
 def verify_nest_placements(
     plate_reports: list[dict[str, Any]],
     *,
@@ -145,44 +219,25 @@ def verify_nest_placements(
                     }
                 )
 
-        for first_index, first in enumerate(placements):
-            for second_index in range(first_index + 1, len(placements)):
-                second = placements[second_index]
-                values = [
-                    first.get(field)
-                    for field in ("x", "y", "w", "h")
-                ] + [
-                    second.get(field)
-                    for field in ("x", "y", "w", "h")
-                ]
-                if not all(
-                    isinstance(value, (int, float))
-                    and math.isfinite(value)
-                    for value in values
-                ):
-                    continue
-                separated = (
-                    first["x"] + first["w"] + inter_part_clearance
-                    <= second["x"] + epsilon
-                    or second["x"] + second["w"] + inter_part_clearance
-                    <= first["x"] + epsilon
-                    or first["y"] + first["h"] + inter_part_clearance
-                    <= second["y"] + epsilon
-                    or second["y"] + second["h"] + inter_part_clearance
-                    <= first["y"] + epsilon
+        for first_index, second_index in _overlap_candidate_pairs(
+            placements, inter_part_clearance, epsilon
+        ):
+            first = placements[first_index]
+            second = placements[second_index]
+            if not _placements_separated(
+                first, second, inter_part_clearance, epsilon
+            ):
+                findings.append(
+                    {
+                        "code": "placement_overlap",
+                        "path": (
+                            f"$.plate_reports[{plate_index}].placements"
+                            f"[{first_index},{second_index}]"
+                        ),
+                        "message": (
+                            "Placements overlap or violate the required "
+                            "kerf-plus-gap clearance."
+                        ),
+                    }
                 )
-                if not separated:
-                    findings.append(
-                        {
-                            "code": "placement_overlap",
-                            "path": (
-                                f"$.plate_reports[{plate_index}].placements"
-                                f"[{first_index},{second_index}]"
-                            ),
-                            "message": (
-                                "Placements overlap or violate the required "
-                                "kerf-plus-gap clearance."
-                            ),
-                        }
-                    )
     return findings

@@ -33,6 +33,7 @@ def test_npm_dry_run_contains_runtime_contract_and_excludes_private_artifacts():
         "skills/_shared/schemas/nest-result.schema.json",
         "skills/_shared/schemas/run-manifest.schema.json",
         "skills/steel-estimate/SKILL.md",
+        "skills/steel-estimate/scripts/acknowledge-finding.py",
         "skills/steel-estimate/scripts/build-estimate-package.py",
         "skills/steel-nest/scripts/nest.py",
         "skills/steel-rfq/scripts/generate-rfq.py",

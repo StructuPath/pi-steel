@@ -7,7 +7,7 @@ The deterministic compiler accepts either:
    these exact row-1 headers:
 
    `Source_ID`, `Item_ID`, `Scope`, `Description`, `Material`, `Grade`,
-   `Thickness`, `Size`, `Qty`, `Purchase Weight`.
+   `Thickness`, `Size`, `Qty`, `Currency`, `Purchase Weight`.
 
 The legacy adapter is intentionally narrow. `Scope` must be exactly `IN SCOPE`,
 `BY OTHERS`, or `EXCLUDED`; descriptions never control scope. Missing stable
@@ -25,6 +25,7 @@ The optional nesting input is the versioned `rfq_nesting.json` object:
 {
   "schema_version": "1.0.0",
   "source_nest_result_version": "1.0.0",
+  "geometry_readiness": "geometry_verified",
   "rows": []
 }
 ```

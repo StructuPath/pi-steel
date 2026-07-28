@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
+import jsonschema
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -32,6 +33,7 @@ from pi_steel import (  # noqa: E402
     canonical_json_bytes,
     outcome_exit_code,
     package_version,
+    publish_failure_diagnostic,
     sha256_bytes,
 )
 from pi_steel.contracts import ESTIMATE_PACKAGE_VERSION  # noqa: E402
@@ -45,6 +47,9 @@ RECALC_SPEC.loader.exec_module(recalc)
 
 RFQ_COMPILER_VERSION = "1.0.0"
 NEST_HANDOFF_VERSION = "1.0.0"
+NEST_RESULT_SCHEMA_PATH = (
+    SHARED_ROOT / "schemas" / "nest-result.schema.json"
+)
 HEADERS = [
     "Item",
     "Category",
@@ -235,6 +240,14 @@ def normalize_canonical_package(package: dict[str, Any]) -> dict[str, Any]:
         "currency": package["commercial_basis"]["currency"],
         "items": included,
         "warnings": [finding["message"] for finding in result.warnings],
+        "review_findings": [
+            dict(finding)
+            for finding in result.active_findings
+            if finding["severity"] == "warning"
+        ],
+        "assumptions": [
+            dict(assumption) for assumption in package.get("assumptions", [])
+        ],
     }
 
 
@@ -356,6 +369,8 @@ def normalize_legacy_xlsx(path: str | Path) -> dict[str, Any]:
         "warnings": [
             "Legacy XLSX mapping used exact headers; confirm typed scope before issue."
         ],
+        "review_findings": [],
+        "assumptions": [],
     }
 
 
@@ -445,46 +460,90 @@ def validate_company_profile(
     return findings
 
 
-def validate_nest_handoff(value: dict[str, Any] | None) -> list[dict[str, str]]:
+def _nest_handoff_validator() -> jsonschema.Draft202012Validator:
+    schema = json.loads(NEST_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    handoff_schema = {
+        "$schema": schema["$schema"],
+        "$ref": "#/$defs/rfqHandoff",
+        "$defs": schema["$defs"],
+    }
+    return jsonschema.Draft202012Validator(handoff_schema)
+
+
+def _json_path(parts: Any) -> str:
+    result = "$"
+    for part in parts:
+        result += f"[{part}]" if isinstance(part, int) else f".{part}"
+    return result
+
+
+def validate_nest_handoff(
+    value: dict[str, Any] | None,
+    *,
+    expected: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
     if value is None:
         return []
-    findings = []
-    if value.get("schema_version") != NEST_HANDOFF_VERSION:
+    if not isinstance(value, dict):
+        return [
+            {
+                "code": "invalid_nest_handoff",
+                "severity": "error",
+                "path": "$",
+                "message": "Nesting handoff must be a JSON object.",
+            }
+        ]
+    findings: list[dict[str, str]] = []
+    for error in sorted(
+        _nest_handoff_validator().iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    ):
         findings.append(
             {
-                "code": "unsupported_nest_handoff_version",
+                "code": "invalid_nest_handoff_contract",
                 "severity": "error",
-                "message": "Migrate nesting handoff to version 1.0.0.",
+                "path": _json_path(error.absolute_path),
+                "message": error.message,
             }
         )
-    if value.get("source_nest_result_version") != "1.0.0":
+    rows = value.get("rows")
+    readiness_values = [value.get("geometry_readiness")]
+    if isinstance(rows, list):
+        readiness_values.extend(
+            row.get("geometry_readiness")
+            for row in rows
+            if isinstance(row, dict)
+        )
+    if "diagnostic" in readiness_values:
         findings.append(
             {
-                "code": "unsupported_nest_result_version",
+                "code": "diagnostic_nest_handoff",
                 "severity": "error",
-                "message": "Nesting result version must be 1.0.0.",
+                "path": "$.geometry_readiness",
+                "message": (
+                    "Diagnostic nesting output is not eligible for an RFQ; "
+                    "resolve nest blockers and regenerate the handoff."
+                ),
             }
         )
-    if value.get("geometry_readiness") not in {
-        "geometry_verified",
-        "reference_only",
-        "diagnostic",
-    }:
-        findings.append(
-            {
-                "code": "invalid_geometry_readiness",
-                "severity": "error",
-                "message": "Nesting handoff requires explicit geometry_readiness.",
-            }
-        )
-    if not isinstance(value.get("rows"), list):
-        findings.append(
-            {
-                "code": "invalid_nest_rows",
-                "severity": "error",
-                "message": "Nesting handoff rows must be an array.",
-            }
-        )
+    if expected is not None:
+        for handoff_field, expected_field in (
+            ("project_id", "project_id"),
+            ("revision_id", "revision_id"),
+            ("estimate_input_hash", "input_hash"),
+        ):
+            if value.get(handoff_field) != expected.get(expected_field):
+                findings.append(
+                    {
+                        "code": "stale_nest_handoff",
+                        "severity": "error",
+                        "path": f"$.{handoff_field}",
+                        "message": (
+                            f"Nesting handoff {handoff_field} does not match "
+                            "the current estimate package."
+                        ),
+                    }
+                )
     return findings
 
 
@@ -573,6 +632,24 @@ def _safe_filename(project_name: str) -> str:
     return f"{stem or 'RFQ'}_RFQ_Material_List.xlsx"
 
 
+def _escape_untrusted_formulas(
+    workbook: Workbook,
+    owned_formula_cells: set[tuple[str, str]],
+) -> None:
+    """Force user-controlled formula-like strings to remain literal cells."""
+    dangerous = re.compile(r"^\s*[=+\-@]")
+    for worksheet in workbook.worksheets:
+        for row in worksheet.iter_rows():
+            for cell in row:
+                value = cell.value
+                if (
+                    isinstance(value, str)
+                    and dangerous.match(value)
+                    and (worksheet.title, cell.coordinate) not in owned_formula_cells
+                ):
+                    cell.value = "'" + value
+
+
 def compile_workbook(
     normalized: dict[str, Any],
     profile: dict[str, Any],
@@ -592,7 +669,7 @@ def compile_workbook(
             "company profile blocked: "
             + "; ".join(finding["message"] for finding in profile_findings)
         )
-    nest_findings = validate_nest_handoff(nest_handoff)
+    nest_findings = validate_nest_handoff(nest_handoff, expected=normalized)
     if nest_findings:
         raise RfqInputError(
             "nest handoff blocked: "
@@ -670,6 +747,7 @@ def compile_workbook(
 
     row = 9
     material_rows = []
+    owned_formula_cells: set[tuple[str, str]] = set()
     grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for item in normalized["items"]:
         key = (
@@ -718,6 +796,7 @@ def compile_workbook(
             for column, value in enumerate(values, start=1):
                 sheet.cell(row, column, value)
             sheet.cell(row, 10, f'=IF(I{row}="","",F{row}*I{row})')
+            owned_formula_cells.add((sheet.title, f"J{row}"))
             for column in range(1, 15):
                 cell = sheet.cell(row, column)
                 cell.border = border
@@ -745,6 +824,12 @@ def compile_workbook(
     sheet.cell(total_row, 1).alignment = Alignment(horizontal="right")
     sheet.cell(total_row, 8, f"=SUM(H{first_material_row}:H{last_material_row})")
     sheet.cell(total_row, 10, f"=SUM(J{first_material_row}:J{last_material_row})")
+    owned_formula_cells.update(
+        {
+            (sheet.title, f"H{total_row}"),
+            (sheet.title, f"J{total_row}"),
+        }
+    )
     for column in (8, 10):
         sheet.cell(total_row, column).fill = PatternFill("solid", fgColor=green)
         sheet.cell(total_row, column).font = Font(name="Arial", bold=True)
@@ -801,7 +886,55 @@ def compile_workbook(
             cell.alignment = Alignment(vertical="top", wrap_text=True)
         nest_row += 1
 
-    terms_header_row = nest_row + 1
+    review_header_row = nest_row + 1
+    sheet.merge_cells(
+        start_row=review_header_row,
+        start_column=1,
+        end_row=review_header_row,
+        end_column=14,
+    )
+    sheet.cell(review_header_row, 1, "REVIEW NOTES / ASSUMPTIONS")
+    sheet.cell(review_header_row, 1).font = Font(
+        name="Arial", bold=True, color=dark_blue
+    )
+    review_row = review_header_row + 1
+    review_notes = [
+        f"{finding.get('finding_id', finding.get('code', 'review'))}: "
+        f"{finding.get('message', '')}"
+        for finding in normalized.get("review_findings", [])
+    ]
+    known_messages = {
+        finding.get("message")
+        for finding in normalized.get("review_findings", [])
+    }
+    review_notes.extend(
+        warning
+        for warning in normalized.get("warnings", [])
+        if warning not in known_messages
+    )
+    review_notes.extend(
+        (
+            f"Assumption {assumption.get('assumption_id', 'unidentified')} "
+            f"[{assumption.get('status', 'unknown')}]: {assumption.get('text', '')}"
+        )
+        for assumption in normalized.get("assumptions", [])
+    )
+    if not review_notes:
+        review_notes.append("No active review warnings or assumptions.")
+    for note in review_notes:
+        sheet.merge_cells(
+            start_row=review_row,
+            start_column=1,
+            end_row=review_row,
+            end_column=14,
+        )
+        sheet.cell(review_row, 1, note)
+        sheet.cell(review_row, 1).alignment = Alignment(
+            wrap_text=True, vertical="top"
+        )
+        review_row += 1
+
+    terms_header_row = review_row + 1
     sheet.merge_cells(
         start_row=terms_header_row, start_column=1, end_row=terms_header_row, end_column=14
     )
@@ -852,6 +985,7 @@ def compile_workbook(
         else:
             logo_status = "text_fallback"
 
+    _escape_untrusted_formulas(workbook, owned_formula_cells)
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
     workbook_path = output_directory / _safe_filename(normalized["project_name"])
@@ -867,6 +1001,7 @@ def compile_workbook(
             "last_material_row": last_material_row,
             "total_row": total_row,
             "nest_header_row": nest_header_row,
+            "review_header_row": review_header_row,
             "terms_header_row": terms_header_row,
         },
     }
@@ -894,7 +1029,7 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
         )
     try:
         normalized = _load_normalized(input_path)
-    except (RfqInputError, json.JSONDecodeError) as exc:
+    except RfqInputError as exc:
         normalized = {
             "input_kind": "invalid",
             "input_version": "unknown",
@@ -905,6 +1040,8 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
             "currency": "USD",
             "items": [],
             "warnings": [],
+            "review_findings": [],
+            "assumptions": [],
         }
         input_findings.append(
             {
@@ -933,7 +1070,10 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
             if args.nest
             else None
         )
-        nest_findings = validate_nest_handoff(nest_handoff)
+        nest_findings = validate_nest_handoff(
+            nest_handoff,
+            expected=normalized,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         nest_handoff = None
         nest_findings = [
@@ -1039,9 +1179,15 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
 
 def main(argv=None) -> int:
     parser = StageArgumentParser(description=__doc__)
+    parser.configure_failure_diagnostics(
+        stage="steel-rfq",
+        entry_file=__file__,
+        input_option="--input",
+        date_options={"--issued-date": "issued_date"},
+    )
     parser.add_argument("--input", required=True)
     parser.add_argument("--nest")
-    parser.add_argument("--out", default="out")
+    parser.add_argument("--out", default="outputs")
     parser.add_argument("--issued-date", required=True)
     parser.add_argument("--project-location", default="")
     parser.add_argument("--no-bake", action="store_true")
@@ -1050,7 +1196,21 @@ def main(argv=None) -> int:
     try:
         qa_report, final_path = publish_rfq_run(args)
     except (OSError, json.JSONDecodeError, RfqInputError) as exc:
-        print(f"RFQ generation failed: {exc}", file=sys.stderr)
+        diagnostic_path = publish_failure_diagnostic(
+            args.out,
+            stage="steel-rfq",
+            input_path=args.input,
+            error=exc,
+            tool_version=package_version(__file__),
+            run_id=args.run_id,
+            explicit_dates={"issued_date": args.issued_date},
+        )
+        suffix = (
+            f"; diagnostic published: {diagnostic_path}"
+            if diagnostic_path is not None
+            else "; diagnostic publication unavailable"
+        )
+        print(f"RFQ generation failed: {exc}{suffix}", file=sys.stderr)
         return 1
     print(f"Published {qa_report['run_outcome']} draft RFQ run: {final_path}")
     return outcome_exit_code(qa_report["run_outcome"])

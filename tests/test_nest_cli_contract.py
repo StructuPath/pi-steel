@@ -87,6 +87,9 @@ def test_ready_cli_publishes_versioned_result_handoff_and_manifest(tmp_path):
     assert len(result["normalized_input_hash"]) == 64
     handoff = json.loads((run_path / "rfq_nesting.json").read_text())
     assert handoff["schema_version"] == "1.0.0"
+    assert handoff["project_id"] == "SYNTHETIC-CLI-CONTRACT"
+    assert handoff["revision_id"] == "LEGACY-REVISION"
+    assert handoff["estimate_input_hash"] == result["normalized_input_hash"]
     assert handoff["rows"][0]["grade"] == "A36"
     manifest = json.loads((run_path / "run-manifest.json").read_text())
     assert manifest["schema_versions"]["nest_result"] == "1.0.0"

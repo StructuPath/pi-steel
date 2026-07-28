@@ -37,10 +37,13 @@ distribution.
    required, label values as synthetic in the same fixture.
 5. Keep private inputs and generated outputs outside the repository in ignored
    directories such as `private/`, `local-data/`, `customer-data/`, or `outputs/`.
-6. Run `python3 scripts/check-public-data.py` before every commit and release.
+6. Run `python3 scripts/check-public-data.py` before every commit and release. Before
+   pushing, also scan the outgoing range with
+   `python3 scripts/check-public-data.py --range <remote-ref>..HEAD`.
 7. Put private names and identifiers, one per line, in the ignored local file
    `.pi-steel/private-terms.txt`; the scanner checks them without committing the
    denylist or echoing matched text.
 
 Git history is public too. Removing a value from the current tree does not remove it
-from prior commits; history cleanup requires an explicit coordinated rewrite.
+from prior commits. Use `npm run privacy:history` for a redacted audit; history
+cleanup requires an explicit coordinated rewrite.

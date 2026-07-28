@@ -298,6 +298,17 @@ class RunPublisher:
             with os.fdopen(pointer_fd, "wb") as stream:
                 stream.write(canonical_json_bytes(pointer))
             os.replace(pointer_name, self.destination / "latest-run.json")
+        except Exception as pointer_error:
+            try:
+                shutil.rmtree(self.final_path)
+            except OSError as rollback_error:
+                raise ManifestError(
+                    "latest-run pointer update failed and the unpublished run "
+                    f"could not be rolled back: {self.final_path}"
+                ) from rollback_error
+            raise ManifestError(
+                "latest-run pointer update failed; unpublished run was rolled back"
+            ) from pointer_error
         finally:
             if os.path.exists(pointer_name):
                 os.unlink(pointer_name)

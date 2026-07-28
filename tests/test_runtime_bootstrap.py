@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import openpyxl
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +105,47 @@ def test_doctor_returns_machine_readable_dependency_missing_for_unsupported_pyth
     assert report["run_outcome"] == "dependency_missing"
     assert report["exit_code"] == 4
     assert "python" in report["missing_required"]
+
+
+@pytest.mark.parametrize("missing_module", ["jsonschema", "openpyxl", "pandas"])
+def test_doctor_maps_each_missing_required_module_to_dependency_missing(
+    missing_module,
+):
+    doctor = load_doctor()
+
+    report = doctor.diagnose(
+        version_info=(3, 12, 1),
+        module_finder=lambda name: (
+            None if name == missing_module else object()
+        ),
+        command_finder=lambda name: "synthetic-jq" if name == "jq" else None,
+    )
+
+    assert report["run_outcome"] == "dependency_missing"
+    assert report["exit_code"] == 4
+    assert report["missing_required"] == [missing_module]
+    dependency = next(
+        item for item in report["required"] if item["name"] == missing_module
+    )
+    assert dependency["available"] is False
+    assert dependency["purpose"] == doctor.REQUIRED_MODULES[missing_module]
+
+
+def test_doctor_maps_missing_jq_to_dependency_missing():
+    doctor = load_doctor()
+
+    report = doctor.diagnose(
+        version_info=(3, 12, 1),
+        module_finder=lambda _name: object(),
+        command_finder=lambda _name: None,
+    )
+
+    assert report["run_outcome"] == "dependency_missing"
+    assert report["exit_code"] == 4
+    assert report["missing_required"] == ["jq"]
+    jq = next(item for item in report["required"] if item["name"] == "jq")
+    assert jq["available"] is False
+    assert jq["kind"] == "command"
 
 
 def test_doctor_reports_optional_capabilities_without_blocking_base_runtime():

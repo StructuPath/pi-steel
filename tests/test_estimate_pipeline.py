@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import os
 import subprocess
 import sys
@@ -22,6 +23,10 @@ SCRIPT = (
 )
 FIXTURES = ROOT / "tests" / "fixtures" / "pipeline"
 GOLDEN = ROOT / "tests" / "golden" / "pipeline" / "ready-artifacts.json"
+SPEC = importlib.util.spec_from_file_location("pi_steel_estimate_pipeline", SCRIPT)
+estimate_pipeline = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = estimate_pipeline
+SPEC.loader.exec_module(estimate_pipeline)
 
 
 def load_package():
@@ -98,6 +103,12 @@ def test_ready_pipeline_matches_artifact_contract_and_preserves_scope(tmp_path):
         "exclusion",
     }
     nest = load_json(run_path / "nest-result.json")
+    handoff = load_json(run_path / "rfq-nesting.json")
+    assert nest["estimate_input_hash"] == manifest["input_hash"]
+    assert nest["normalized_input_hash"] != nest["estimate_input_hash"]
+    assert handoff["project_id"] == "SYNTHETIC-PIPELINE-001"
+    assert handoff["revision_id"] == "SYNTHETIC-REV-A"
+    assert handoff["estimate_input_hash"] == manifest["input_hash"]
     assert {
         (group["grade"], group["thickness"]) for group in nest["groups"]
     } == {("A36", 0.5), ("A572", 0.375)}
@@ -158,7 +169,7 @@ def test_blockers_preserve_diagnostics_but_never_publish_workbook(tmp_path, bloc
     if blocker == "validation":
         package["items"][0]["quantity"] = 0
     elif blocker == "unplaced":
-        package["stock"][0]["quantity"] = 0
+        package["items"][2]["quantity"] = 100
     else:
         profile = False
     completed, run_path = run_pipeline(
@@ -293,6 +304,62 @@ def test_confirmed_on_hand_stock_is_consumed_without_duplicate_rfq_demand(tmp_pa
     semantic = load_json(run_path / "workbook-semantic.json")
     workbook_text = json.dumps(semantic)
     assert not any(item_id in workbook_text for item_id in purchase_ids)
+
+
+def test_inventory_consumption_uses_explicit_links_and_never_removes_twice():
+    package = {
+        "items": [
+            {
+                "intent": "purchased_stock",
+                "item_id": "item:synthetic-stock-a",
+                "quantity": 1,
+                "dimensions": {"inventory_id": "SYNTHETIC-INV-A"},
+            },
+            {
+                "intent": "purchased_stock",
+                "item_id": "item:synthetic-stock-b",
+                "quantity": 1,
+                "dimensions": {"inventory_id": "SYNTHETIC-INV-B"},
+            },
+            {
+                "intent": "purchased_stock",
+                "item_id": "item:synthetic-unlinked",
+                "quantity": 1,
+                "dimensions": {},
+            },
+        ]
+    }
+    normalized = {
+        "items": [
+            {
+                "item_id": item["item_id"],
+                "quantity": item["quantity"],
+                "purchase_weight_lbs": 10,
+            }
+            for item in package["items"]
+        ]
+    }
+    nest_result = {
+        "plate_reports": [
+            {"stock_id": "SYNTHETIC-INV-A"},
+            {"stock_id": "SYNTHETIC-INV-B"},
+        ]
+    }
+
+    lineage = estimate_pipeline.apply_inventory_consumption(
+        package,
+        normalized,
+        nest_result,
+        {"SYNTHETIC-INV-A", "SYNTHETIC-INV-B"},
+    )
+
+    assert {row["purchase_item_id"] for row in lineage} == {
+        "item:synthetic-stock-a",
+        "item:synthetic-stock-b",
+    }
+    assert [item["item_id"] for item in normalized["items"]] == [
+        "item:synthetic-unlinked"
+    ]
 
 
 def test_wrong_container_type_still_publishes_blocked_diagnostics(tmp_path):

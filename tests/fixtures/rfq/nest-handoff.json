@@ -1,6 +1,9 @@
 {
   "schema_version": "1.0.0",
   "source_nest_result_version": "1.0.0",
+  "project_id": "SYNTHETIC-RFQ-001",
+  "revision_id": "SYNTHETIC-REV-A",
+  "estimate_input_hash": "9200952fc62e897d5ddd2247cf0b10061c62decaed9a392ca2134aba12576903",
   "geometry_readiness": "reference_only",
   "rows": [
     {

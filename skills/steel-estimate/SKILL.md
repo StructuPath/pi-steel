@@ -69,6 +69,45 @@ Exit codes:
 
 See `references/output-contract.md` for artifact and status semantics.
 
+## Review acknowledgements
+
+The acknowledgement helper records a decision already made by a named human.
+It never infers a disposition, chooses an actor or timestamp, or changes source
+facts. Read the finding in `qa-report.json`, then supply every decision field
+explicitly and write a new package:
+
+```bash
+python3 scripts/acknowledge-finding.py \
+  --input <estimate-package.json> \
+  --output <reviewed-estimate-package.json> \
+  --finding-id <finding-id> \
+  --input-hash <finding-relevant-hash> \
+  --actor "<reviewer name>" \
+  --timestamp <ISO-8601-date-time> \
+  --disposition accepted
+```
+
+Allowed dispositions are `accepted`, `rejected`, and `deferred`. An accepted
+warning is cleared only while its relevant input hash still matches. Recording
+acceptance of a blocker does not waive that blocker. Re-run the estimate
+pipeline with the newly written package and inspect the new QA report.
+
+## Dependency recovery
+
+If a command reports exit `4` or names a missing capability, run the package
+doctor from the package root:
+
+```bash
+python3 scripts/doctor.py --json
+```
+
+Install the base calculation and workbook dependencies from
+`requirements.txt`. Install `requirements-render.txt` only when PDF, PNG, DXF,
+or LibreOffice-assisted output is needed. `requirements-tested.txt` records the
+exact dependency versions exercised by CI; it is a reproducibility reference,
+not the general installation range. Run the doctor again after installation
+before retrying the estimate.
+
 ## Delivery checks
 
 - Read `run-manifest.json` and `qa-report.json`; do not infer readiness from a

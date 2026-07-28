@@ -17,7 +17,7 @@ pi install npm:@structupath/pi-steel
 Structural steel quantity takeoff with a bundled **AISC 16th Edition shapes database (477 shapes)** — W, HSS, angles, channels, pipe — plus scripts the agent runs directly:
 
 - `lookup-member.sh` — full property set for any AISC designation (`W14X30` → plf, d, bf, A, Ix, Sx, …)
-- `calculate-weight.sh` — BOM totals with connection and misc-steel allowances, tonnage, cost sensitivity
+- `calculate-weight.sh` — BOM weight totals with connection and misc-steel allowances and tonnage; it does not invent pricing
 - `validate-bom.py` — catches invalid designations, wrong grades, duplicate marks, unreasonable weights
 
 Also includes reference guides for AISC shape families, takeoff procedures with worked examples, connection types and hardware weights, material grades, and bolt capacities.
@@ -77,6 +77,7 @@ artifacts outside this repository. Public examples are synthetic and must follow
 npm test                 # base, no-render suite
 npm run test:full        # optional PDF/PNG/DXF/LibreOffice smoke tests
 npm run privacy:check    # public-repository data guard
+npm run privacy:history  # redacted audit of every reachable commit
 npm run pack:check       # npm contents plus unpacked-runtime smoke test
 npm run provenance:check # shape-data integrity and recorded decision
 npm run release:check    # complete release gate

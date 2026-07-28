@@ -1,4 +1,5 @@
 import importlib.util
+import random
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -13,6 +14,7 @@ nest = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = nest
 SPEC.loader.exec_module(nest)
 
+import pi_steel.geometry_verify as geometry_verify
 from pi_steel.geometry_verify import verify_nest_placements
 
 
@@ -87,3 +89,90 @@ def test_verifier_rejects_overlap_bounds_clearance_and_material_mismatch():
         )
     }
     assert {"placement_out_of_bounds", "placement_overlap", "material_mismatch"} <= codes
+
+
+def _brute_force_overlap_paths(placements, clearance, epsilon=1e-9):
+    paths = []
+    for first_index, first in enumerate(placements):
+        for second_index in range(first_index + 1, len(placements)):
+            second = placements[second_index]
+            if not (
+                geometry_verify._finite_placement_values(first)
+                and geometry_verify._finite_placement_values(second)
+            ):
+                continue
+            if not geometry_verify._placements_separated(
+                first, second, clearance, epsilon
+            ):
+                paths.append(
+                    f"$.plate_reports[0].placements[{first_index},{second_index}]"
+                )
+    return paths
+
+
+def test_sweep_line_overlap_results_match_all_pairs_reference():
+    generator = random.Random(20260728)
+    placements = [
+        {
+            "x": generator.uniform(0, 90),
+            "y": generator.uniform(0, 40),
+            "w": generator.uniform(0.25, 8),
+            "h": generator.uniform(0.25, 8),
+            "material": "carbon_steel",
+            "grade": "A36",
+            "thickness": 0.5,
+        }
+        for _ in range(150)
+    ]
+    plate = {
+        "W": 100,
+        "H": 50,
+        "material": "carbon_steel",
+        "grade": "A36",
+        "thickness": 0.5,
+        "placements": placements,
+    }
+    actual = [
+        finding["path"]
+        for finding in verify_nest_placements(
+            [plate], edge_margin=0, inter_part_clearance=0.25
+        )
+        if finding["code"] == "placement_overlap"
+    ]
+    assert actual == _brute_force_overlap_paths(placements, 0.25)
+
+
+def test_sweep_line_avoids_all_pairs_on_large_separated_layout(monkeypatch):
+    placements = [
+        {
+            "x": index * 2.0,
+            "y": 0.0,
+            "w": 1.0,
+            "h": 1.0,
+            "material": "carbon_steel",
+            "grade": "A36",
+            "thickness": 0.5,
+        }
+        for index in range(4_000)
+    ]
+    plate = {
+        "W": 8_001,
+        "H": 2,
+        "material": "carbon_steel",
+        "grade": "A36",
+        "thickness": 0.5,
+        "placements": placements,
+    }
+    checks = 0
+    original = geometry_verify._placements_separated
+
+    def counted(*args, **kwargs):
+        nonlocal checks
+        checks += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(geometry_verify, "_placements_separated", counted)
+    assert verify_nest_placements(
+        [plate], edge_margin=0, inter_part_clearance=0.25
+    ) == []
+    assert checks < len(placements) * 4

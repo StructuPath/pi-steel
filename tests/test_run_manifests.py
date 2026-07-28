@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from pi_steel.run_manifest import (
     sha256_bytes,
     sha256_file,
 )
+import pi_steel.run_manifest as run_manifest
 
 
 INPUT_HASH = sha256_bytes(b"SYNTHETIC-INPUT")
@@ -140,3 +142,30 @@ def test_ready_publication_requires_qa_report(tmp_path):
     with publisher(tmp_path, "SYNTHETIC-RUN-NO-QA") as run:
         with pytest.raises(ManifestError, match="require qa-report.json"):
             run.publish()
+
+
+def test_pointer_update_failure_rolls_back_run_and_preserves_prior_pointer(
+    tmp_path, monkeypatch
+):
+    with publisher(tmp_path, "SYNTHETIC-RUN-PRIOR") as prior:
+        prior.write_qa_report({"outcome": "ready"})
+        prior.publish()
+    pointer_before = (tmp_path / "latest-run.json").read_bytes()
+
+    original_replace = os.replace
+
+    def fail_latest_pointer(source, destination):
+        if Path(destination).name == "latest-run.json":
+            raise OSError("synthetic pointer failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(run_manifest.os, "replace", fail_latest_pointer)
+    failed = publisher(tmp_path, "SYNTHETIC-RUN-POINTER-FAIL")
+    with failed:
+        failed.write_qa_report({"outcome": "ready"})
+        with pytest.raises(ManifestError, match="unpublished run was rolled back"):
+            failed.publish()
+
+    assert not failed.final_path.exists()
+    assert (tmp_path / "latest-run.json").read_bytes() == pointer_before
+    assert json.loads(pointer_before)["run_id"] == "SYNTHETIC-RUN-PRIOR"

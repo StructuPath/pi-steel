@@ -30,6 +30,7 @@ from pi_steel import (  # noqa: E402
     canonical_json_bytes,
     outcome_exit_code,
     package_version,
+    publish_failure_diagnostic,
     sha256_bytes,
 )
 from pi_steel.contracts import ESTIMATE_PACKAGE_VERSION  # noqa: E402
@@ -120,6 +121,7 @@ def _legacy_hole(hole: dict[str, Any]) -> dict[str, Any]:
 def nest_job_from_package(
     package: dict[str, Any],
     *,
+    estimate_input_hash: str,
     eligible_inventory_ids: set[str],
     kerf_in: float,
     part_gap_in: float,
@@ -178,6 +180,7 @@ def nest_job_from_package(
         or package["project"]["project_id"],
         "project_id": package["project"]["project_id"],
         "revision_id": package["project"]["revision"]["revision_id"],
+        "estimate_input_hash": estimate_input_hash,
         "unit_system": package["unit_system"],
         "settings": {
             "kerf_in": kerf_in,
@@ -299,11 +302,6 @@ def apply_inventory_consumption(
         for report in (nest_result or {}).get("plate_reports", [])
         if report["stock_id"] in eligible_inventory_ids
     )
-    stock_by_id = {
-        stock["inventory_id"]: stock
-        for stock in package.get("stock", [])
-        if stock.get("inventory_id") in used
-    }
     normalized_by_id = {
         item["item_id"]: item for item in rfq_normalized.get("items", [])
     }
@@ -312,31 +310,33 @@ def apply_inventory_consumption(
             item
             for item in package.get("items", [])
             if item.get("intent") == "purchased_stock"
+            and (
+                (item.get("dimensions") or {}).get("inventory_id")
+                or (item.get("dimensions") or {}).get("stock_id")
+            )
         ),
         key=lambda row: row["item_id"],
     )
     lineage = []
     for inventory_id in sorted(used):
-        stock = stock_by_id[inventory_id]
         remaining = used[inventory_id]
         for item in purchase_items:
             if remaining <= 0:
                 break
             dimensions = item.get("dimensions") or {}
-            if not (
-                item.get("material") == stock.get("material")
-                and item.get("grade") == stock.get("grade")
-                and dimensions.get("width") == stock.get("width")
-                and dimensions.get("height") == stock.get("height")
-                and dimensions.get("thickness") == stock.get("thickness")
-            ):
+            linked_stock_id = (
+                dimensions.get("inventory_id") or dimensions.get("stock_id")
+            )
+            if linked_stock_id != inventory_id:
                 continue
-            satisfied = min(item["quantity"], remaining)
-            remaining -= satisfied
             rfq_item = normalized_by_id.get(item["item_id"])
             if rfq_item is None:
                 continue
             original_quantity = rfq_item["quantity"]
+            satisfied = min(original_quantity, remaining)
+            if satisfied <= 0:
+                continue
+            remaining -= satisfied
             open_quantity = original_quantity - satisfied
             if open_quantity:
                 rfq_item["quantity"] = open_quantity
@@ -349,6 +349,7 @@ def apply_inventory_consumption(
                     )
             else:
                 rfq_normalized["items"].remove(rfq_item)
+                normalized_by_id.pop(item["item_id"], None)
             lineage.append(
                 {
                     "inventory_id": inventory_id,
@@ -475,6 +476,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
     if not validation_blocked:
         nest_job = nest_job_from_package(
             normalized,
+            estimate_input_hash=validation.input_hash,
             eligible_inventory_ids=eligible_inventory_ids,
             kerf_in=args.kerf_in,
             part_gap_in=args.part_gap_in,
@@ -782,8 +784,17 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
 
 def main(argv=None) -> int:
     parser = StageArgumentParser(description=__doc__)
+    parser.configure_failure_diagnostics(
+        stage="steel-estimate",
+        entry_file=__file__,
+        input_option="--input",
+        date_options={
+            "--prepared-date": "prepared_date",
+            "--issued-date": "issued_date",
+        },
+    )
     parser.add_argument("--input", required=True)
-    parser.add_argument("--out", default="out")
+    parser.add_argument("--out", default="outputs")
     parser.add_argument("--prepared-date", required=True)
     parser.add_argument("--issued-date", required=True)
     parser.add_argument("--project-location", default="")
@@ -798,7 +809,24 @@ def main(argv=None) -> int:
     try:
         qa_report, final_path = build_pipeline(args)
     except (OSError, json.JSONDecodeError, PipelineInputError) as exc:
-        print(f"Estimate package failed: {exc}", file=sys.stderr)
+        diagnostic_path = publish_failure_diagnostic(
+            args.out,
+            stage="steel-estimate",
+            input_path=args.input,
+            error=exc,
+            tool_version=package_version(__file__),
+            run_id=args.run_id,
+            explicit_dates={
+                "prepared_date": args.prepared_date,
+                "issued_date": args.issued_date,
+            },
+        )
+        suffix = (
+            f"; diagnostic published: {diagnostic_path}"
+            if diagnostic_path is not None
+            else "; diagnostic publication unavailable"
+        )
+        print(f"Estimate package failed: {exc}{suffix}", file=sys.stderr)
         return 1
     print(f"Published {qa_report['run_outcome']} estimate package: {final_path}")
     return outcome_exit_code(qa_report["run_outcome"])
