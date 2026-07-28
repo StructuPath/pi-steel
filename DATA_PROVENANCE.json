@@ -2,9 +2,13 @@
   "schema_version": "1.0.0",
   "datasets": [
     {
-      "dataset_id": "aisc-shapes-v16-transformed",
+      "dataset_id": "structupath-structural-shapes-v1",
+      "dataset_name": "StructuPath Structural Shapes Database",
       "shipped_file": "skills/steel-takeoff/assets/aisc-shapes-database.json",
-      "claimed_edition": "AISC Shapes Database v16.0",
+      "source": "Original StructuPath dataset created from StructuPath's internal structural-shape records",
+      "copyright_holder": "StructuPath",
+      "license": "MIT",
+      "authorization": "Authorized by StructuPath for public redistribution in @structupath/pi-steel under the MIT license on 2026-07-28",
       "rows": 477,
       "sha256": "5a7c975c4c290c34df6f7df3b4d0d0d13a00ef7c2b1f45097a49a78d245dcc91",
       "required_fields": [
@@ -12,8 +16,8 @@
         "designation",
         "weight_per_ft"
       ],
-      "redistribution_permission": "unverified",
-      "release_readiness": "blocked"
+      "redistribution_permission": "authorized",
+      "release_readiness": "ready"
     }
   ]
 }

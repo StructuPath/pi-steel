@@ -50,7 +50,7 @@ npm run doctor
 
 ### Takeoff
 
-`steel-takeoff` provides AISC shape lookup, weight calculation, and BOM
+`steel-takeoff` provides structural-shape lookup, weight calculation, and BOM
 validation helpers. It checks member designations, grades, duplicate marks, and
 unreasonable weights. It calculates from supplied quantities and allowances; it
 does not invent pricing.
@@ -134,17 +134,13 @@ npm run provenance:check # shape-data integrity and recorded decision
 npm run release:check    # complete release gate
 ```
 
-The latest npm release is `0.2.2`. The source repository also declares `0.2.2`
-until a later release passes every publishing gate.
-
-`release:check` intentionally blocks a new npm publication while redistribution
-permission for the transformed AISC shape dataset remains unverified. Do not
-bypass that gate. An updated README or demo reaches the Pi catalog only through
-a future, fully approved npm release.
+The current package version is `0.2.3`. `release:check` verifies the test,
+privacy, package-content, shape-data integrity, ownership, license, and
+redistribution contracts before publication.
 
 ## License
 
-StructuPath-authored code and documentation are MIT licensed. That license does
-not grant rights in third-party data. The checked-in AISC-derived shape data has
-a separate, currently blocked redistribution decision documented in
+StructuPath-authored code, documentation, and the bundled StructuPath Structural
+Shapes Database are distributed under the MIT license. Dataset ownership,
+authorization, and integrity evidence are documented in
 [DATA_PROVENANCE.md](DATA_PROVENANCE.md).

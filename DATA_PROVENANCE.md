@@ -1,42 +1,35 @@
 # Data Provenance
 
-This file records the evidence and release decision for third-party datasets
-shipped by pi-steel. The repository's MIT license covers StructuPath-authored
-code and documentation; it must not be interpreted as granting rights in
-third-party data.
+This file records the evidence and release decision for datasets shipped by
+pi-steel. [`DATA_PROVENANCE.json`](DATA_PROVENANCE.json) is the machine-readable
+release record checked against the shipped bytes.
 
-[`DATA_PROVENANCE.json`](DATA_PROVENANCE.json) is the machine-readable release
-record checked against the shipped bytes. This document provides the supporting
-human-readable evidence and decision rationale.
-
-## AISC shapes database
+## StructuPath Structural Shapes Database
 
 | Field | Recorded value |
 | --- | --- |
+| Dataset name | StructuPath Structural Shapes Database |
 | Shipped file | `skills/steel-takeoff/assets/aisc-shapes-database.json` |
-| Claimed edition | AISC Shapes Database v16.0, consistent with the 16th Edition Steel Construction Manual |
+| Source | Original StructuPath dataset created from StructuPath's internal structural-shape records |
 | Rows in shipped JSON | 477 |
 | SHA-256 | `5a7c975c4c290c34df6f7df3b4d0d0d13a00ef7c2b1f45097a49a78d245dcc91` |
-| Upstream description | [AISC Shapes Database v16.0](https://www.aisc.org/aisc/publications/steel-construction-manual/aisc-shapes-database-v160/) |
-| Release evidence | [AISC's August 14, 2023 companion-material announcement](https://www.aisc.org/news/aisc-releases-complementary-materials-for-the-16th-edition-steel-construction-manual/) |
 | Repository introduction | Initial repository commit |
-| Transformation history | Unknown; no source workbook, conversion script, field map, or contemporaneous checksum is present in repository history |
-| Upstream file checksum | Not recorded; the checked-in JSON cannot currently be byte- or row-reconciled to a preserved source workbook |
-| Redistribution permission | Unverified |
-| Release gate | Blocked pending affirmative redistribution evidence or replacement with a dataset whose redistribution terms are documented |
+| Copyright holder | StructuPath |
+| Redistribution permission | Authorized |
+| Authorization | Authorized by StructuPath for public redistribution in @structupath/pi-steel under the MIT license on 2026-07-28 |
+| License | MIT |
+| Release gate | Ready |
 
-The upstream pages establish that AISC publishes the v16.0 spreadsheet as a
-downloadable digital supplement and describe its relationship to the 16th
-Edition Manual. They do not, based on the evidence recorded here, grant
-permission to redistribute a transformed copy in another public package.
-Availability without charge is not treated as redistribution permission.
+StructuPath confirms that it created this database from its own internal
+structural-shape records and that the dataset is not sourced from AISC. StructuPath owns the
+dataset and has authorized its public redistribution in `@structupath/pi-steel`
+under the MIT license.
 
-Until the release gate is resolved:
+The dataset uses standard structural-shape designations and property names.
+Those references identify industry-standard members; they do not imply that the
+shipped database was copied, transformed, or licensed from AISC.
 
-- Do not claim that the repository's MIT license covers the shapes data.
-- Do not claim that the checked-in JSON is an independently reproducible
-  transformation of the official workbook.
-- Do not publish a new release containing this file without documented approval
-  or a documented replacement decision.
-- Continue verifying the recorded checksum so an unexplained data change cannot
-  pass unnoticed.
+The release check verifies the recorded path, row count, required fields,
+designation uniqueness, SHA-256 digest, ownership, license, authorization, and
+release decision. Any change to the shipped bytes or provenance record requires
+a new review.

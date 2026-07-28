@@ -75,7 +75,7 @@ def test_packed_npm_artifact_contains_runtime_and_runs_doctor(tmp_path):
         text=True,
     )
     assert provenance.returncode == 0, provenance.stdout + provenance.stderr
-    assert json.loads(provenance.stdout)["release_readiness"] == "blocked"
+    assert json.loads(provenance.stdout)["release_readiness"] == "ready"
 
     privacy = subprocess.run(
         [

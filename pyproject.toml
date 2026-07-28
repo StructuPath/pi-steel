@@ -1,6 +1,6 @@
 [project]
 name = "pi-steel-runtime"
-version = "0.2.2"
+version = "0.2.3"
 description = "Python runtime dependencies and test configuration for pi-steel"
 requires-python = ">=3.11,<3.14"
 dependencies = [

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.util
 import json
 import shutil
@@ -14,10 +15,9 @@ from pathlib import Path
 
 SHARED_ROOT = Path(__file__).resolve().parents[1] / "skills" / "_shared"
 sys.path.insert(0, str(SHARED_ROOT))
-from bootstrap import bootstrap_shared  # noqa: E402
-
+bootstrap_shared = getattr(importlib.import_module("bootstrap"), "bootstrap_shared")
 bootstrap_shared(__file__)
-from pi_steel import outcome_exit_code  # noqa: E402
+outcome_exit_code = getattr(importlib.import_module("pi_steel"), "outcome_exit_code")
 
 
 REQUIRED_MODULES = {
@@ -70,7 +70,7 @@ def diagnose(
             "kind": "command",
             "available": jq_path is not None,
             "path": jq_path,
-            "purpose": "AISC shape lookup helpers",
+            "purpose": "structural shape lookup helpers",
         }
     )
 

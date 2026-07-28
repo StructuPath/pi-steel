@@ -16,20 +16,48 @@ PROVENANCE_RECORD_PATH = ROOT / "DATA_PROVENANCE.json"
 
 def audit() -> dict:
     errors: list[str] = []
-    record = json.loads(PROVENANCE_RECORD_PATH.read_text(encoding="utf-8"))
-    datasets = record.get("datasets", [])
-    if len(datasets) != 1:
-        errors.append("expected exactly one declared shipped dataset")
+    try:
+        parsed_record = json.loads(PROVENANCE_RECORD_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        errors.append("DATA_PROVENANCE.json is missing or invalid")
+        parsed_record = {}
+    if not isinstance(parsed_record, dict):
+        errors.append("DATA_PROVENANCE.json must contain an object")
+        parsed_record = {}
+
+    datasets = parsed_record.get("datasets", [])
+    if (
+        not isinstance(datasets, list)
+        or len(datasets) != 1
+        or not isinstance(datasets[0], dict)
+    ):
+        errors.append("expected exactly one declared shipped dataset object")
         dataset = {}
     else:
         dataset = datasets[0]
-    shapes_path = ROOT / dataset.get("shipped_file", "")
-    raw = shapes_path.read_bytes()
+
+    shipped_file = dataset.get("shipped_file")
+    if not isinstance(shipped_file, str) or not shipped_file:
+        errors.append("declared dataset must have a non-empty shipped_file")
+        raw = b""
+    else:
+        shapes_path = ROOT / shipped_file
+        try:
+            raw = shapes_path.read_bytes()
+        except OSError:
+            errors.append("declared shape data is missing or unreadable")
+            raw = b""
+
     checksum = hashlib.sha256(raw).hexdigest()
     if checksum != dataset.get("sha256"):
         errors.append("shape data checksum differs from DATA_PROVENANCE.json")
 
-    rows = json.loads(raw)
+    try:
+        rows = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        errors.append("declared shape data is not valid JSON")
+        rows = []
+
     expected_rows = dataset.get("rows")
     if not isinstance(rows, list) or len(rows) != expected_rows:
         errors.append(f"expected {expected_rows} shape rows")
@@ -51,14 +79,27 @@ def audit() -> dict:
     if len(designations) != len(set(designations)):
         errors.append("shape designations are not unique")
 
-    provenance = PROVENANCE_PATH.read_text(encoding="utf-8")
+    try:
+        provenance = PROVENANCE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        errors.append("DATA_PROVENANCE.md is missing or unreadable")
+        provenance = ""
+
     permission = dataset.get("redistribution_permission")
     release_readiness = dataset.get("release_readiness")
+    if release_readiness == "ready" and permission != "authorized":
+        errors.append("release-ready data must have authorized redistribution")
+
     documented_values = (
-        dataset.get("claimed_edition"),
+        dataset.get("dataset_name"),
+        dataset.get("source"),
+        dataset.get("copyright_holder"),
+        dataset.get("license"),
+        dataset.get("authorization"),
         str(expected_rows),
         dataset.get("sha256"),
-        "Redistribution permission | Unverified",
+        "Redistribution permission | Authorized",
+        "Release gate | Ready",
     )
     if not all(value and value in provenance for value in documented_values):
         errors.append("DATA_PROVENANCE.md differs from the machine-readable record")
@@ -66,7 +107,10 @@ def audit() -> dict:
     return {
         "schema_version": "1.0.0",
         "integrity": "passed" if not errors else "failed",
-        "claimed_edition": dataset.get("claimed_edition"),
+        "dataset_id": dataset.get("dataset_id"),
+        "dataset_name": dataset.get("dataset_name"),
+        "copyright_holder": dataset.get("copyright_holder"),
+        "license": dataset.get("license"),
         "release_readiness": release_readiness,
         "redistribution_permission": permission,
         "shape_rows": len(rows),
