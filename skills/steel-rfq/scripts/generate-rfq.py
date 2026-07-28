@@ -26,8 +26,15 @@ if str(SHARED_ROOT) not in sys.path:
 from bootstrap import bootstrap_shared  # noqa: E402
 
 bootstrap_shared(__file__)
-from pi_steel import RunPublisher, canonical_json_bytes, outcome_exit_code, sha256_bytes  # noqa: E402
-from pi_steel.contracts import ESTIMATE_PACKAGE_VERSION, estimate_input_hash  # noqa: E402
+from pi_steel import (  # noqa: E402
+    RunPublisher,
+    StageArgumentParser,
+    canonical_json_bytes,
+    outcome_exit_code,
+    package_version,
+    sha256_bytes,
+)
+from pi_steel.contracts import ESTIMATE_PACKAGE_VERSION  # noqa: E402
 from pi_steel.validation import validate_estimate_package  # noqa: E402
 
 RECALC_PATH = Path(__file__).with_name("recalc.py")
@@ -85,17 +92,20 @@ class RfqInputError(ValueError):
     """Raised when an input cannot be mapped without guessing."""
 
 
-class StageArgumentParser(argparse.ArgumentParser):
-    def error(self, message):
-        self.print_usage(sys.stderr)
-        self.exit(1, f"{self.prog}: error: {message}\n")
-
-
 def _valid_date(value: Any) -> bool:
     try:
         return date.fromisoformat(str(value)).isoformat() == str(value)
     except ValueError:
         return False
+
+
+def profile_semantic_hash(profile: dict[str, Any] | None) -> str:
+    if profile is None:
+        return sha256_bytes(b"missing-profile")
+    public_profile = {
+        key: value for key, value in profile.items() if not key.startswith("_")
+    }
+    return sha256_bytes(canonical_json_bytes(public_profile))
 
 
 def _fmt(value: Any) -> str:
@@ -862,14 +872,6 @@ def compile_workbook(
     }
 
 
-def _package_version() -> str:
-    path = Path(__file__).resolve().parents[3] / "package.json"
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))["version"]
-    except (OSError, KeyError, json.JSONDecodeError):
-        return "unknown"
-
-
 def _load_normalized(input_path: Path) -> dict[str, Any]:
     if input_path.suffix.lower() == ".json":
         value = json.loads(input_path.read_text(encoding="utf-8"))
@@ -961,18 +963,13 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
         outcome, package_status = "review_required", "rfq_draft_review_required"
     else:
         outcome, package_status = "ready", "rfq_ready_for_review"
-    profile_hash = (
-        sha256_bytes(canonical_json_bytes({k: v for k, v in profile.items() if not k.startswith("_")}))
-        if profile
-        else sha256_bytes(b"missing-profile")
-    )
     configuration_hash = sha256_bytes(
         canonical_json_bytes(
             {
                 "compiler_version": RFQ_COMPILER_VERSION,
                 "issued_date": args.issued_date,
                 "project_location": args.project_location,
-                "profile_hash": profile_hash,
+                "profile_hash": profile_semantic_hash(profile),
                 "nest_handoff": nest_handoff,
                 "bake_requested": not args.no_bake,
             }
@@ -1002,7 +999,7 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
             "rfq_nesting": NEST_HANDOFF_VERSION,
         },
         tool_versions={
-            "pi_steel": _package_version(),
+            "pi_steel": package_version(__file__),
             "rfq_compiler": RFQ_COMPILER_VERSION,
         },
         explicit_dates={"issued_date": args.issued_date},
@@ -1011,7 +1008,6 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
         approximations=[],
         run_id=args.run_id,
     ) as publisher:
-        compile_result = None
         if not blockers:
             compile_result = compile_workbook(
                 normalized,

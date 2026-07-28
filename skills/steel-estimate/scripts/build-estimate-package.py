@@ -24,7 +24,14 @@ if str(SHARED_ROOT) not in sys.path:
 from bootstrap import bootstrap_shared  # noqa: E402
 
 bootstrap_shared(__file__)
-from pi_steel import RunPublisher, canonical_json_bytes, outcome_exit_code, sha256_bytes  # noqa: E402
+from pi_steel import (  # noqa: E402
+    RunPublisher,
+    StageArgumentParser,
+    canonical_json_bytes,
+    outcome_exit_code,
+    package_version,
+    sha256_bytes,
+)
 from pi_steel.contracts import ESTIMATE_PACKAGE_VERSION  # noqa: E402
 from pi_steel.validation import (  # noqa: E402
     eligible_on_hand_stock,
@@ -56,12 +63,6 @@ rfq_compiler = _load_module(
 
 class PipelineInputError(ValueError):
     pass
-
-
-class StageArgumentParser(argparse.ArgumentParser):
-    def error(self, message):
-        self.print_usage(sys.stderr)
-        self.exit(1, f"{self.prog}: error: {message}\n")
 
 
 def normalized_package(package: dict[str, Any]) -> dict[str, Any]:
@@ -306,13 +307,21 @@ def apply_inventory_consumption(
     normalized_by_id = {
         item["item_id"]: item for item in rfq_normalized.get("items", [])
     }
+    purchase_items = sorted(
+        (
+            item
+            for item in package.get("items", [])
+            if item.get("intent") == "purchased_stock"
+        ),
+        key=lambda row: row["item_id"],
+    )
     lineage = []
     for inventory_id in sorted(used):
         stock = stock_by_id[inventory_id]
         remaining = used[inventory_id]
-        for item in sorted(package.get("items", []), key=lambda row: row["item_id"]):
-            if remaining <= 0 or item.get("intent") != "purchased_stock":
-                continue
+        for item in purchase_items:
+            if remaining <= 0:
+                break
             dimensions = item.get("dimensions") or {}
             if not (
                 item.get("material") == stock.get("material")
@@ -351,16 +360,6 @@ def apply_inventory_consumption(
     return lineage
 
 
-def _profile_hash(profile: dict[str, Any] | None) -> str:
-    if profile is None:
-        return sha256_bytes(b"missing-profile")
-    return sha256_bytes(
-        canonical_json_bytes(
-            {key: value for key, value in profile.items() if not key.startswith("_")}
-        )
-    )
-
-
 def _fixed_xlsx(path: Path, issued_date: str) -> None:
     """Normalize volatile XLSX metadata and ZIP timestamps for stable byte hashes."""
     timestamp = f"{issued_date}T00:00:00Z".encode()
@@ -397,14 +396,6 @@ def _fixed_xlsx(path: Path, issued_date: str) -> None:
     finally:
         if temporary_path.exists():
             temporary_path.unlink()
-
-
-def _package_version() -> str:
-    path = Path(__file__).resolve().parents[3] / "package.json"
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))["version"]
-    except (OSError, KeyError, json.JSONDecodeError):
-        return "unknown"
 
 
 def _finding(code, severity, path, message):
@@ -481,7 +472,6 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
     profile_blocked = bool(profile_findings)
 
     nest_result = None
-    nest_job = None
     if not validation_blocked:
         nest_job = nest_job_from_package(
             normalized,
@@ -617,7 +607,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         "density_lb_in3": args.density_lb_in3,
         "render": not args.no_render,
         "bake": not args.no_bake,
-        "profile_hash": _profile_hash(profile),
+        "profile_hash": rfq_compiler.profile_semantic_hash(profile),
     }
     configuration_hash = sha256_bytes(canonical_json_bytes(configuration))
     if validation_blocked:
@@ -688,7 +678,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
             "rfq_workbook": rfq_compiler.RFQ_COMPILER_VERSION,
         },
         tool_versions={
-            "pi_steel": _package_version(),
+            "pi_steel": package_version(__file__),
             "estimate_pipeline": PIPELINE_VERSION,
             "nest_algorithm": nest_engine.NEST_ALGORITHM_VERSION,
             "rfq_compiler": rfq_compiler.RFQ_COMPILER_VERSION,

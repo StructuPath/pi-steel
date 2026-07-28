@@ -1,5 +1,6 @@
 """Shared deterministic runtime primitives for pi-steel skills."""
 
+from .cli import StageArgumentParser, package_version
 from .contracts import (
     ESTIMATE_PACKAGE_VERSION,
     ITEM_INTENTS,
@@ -32,12 +33,14 @@ __all__ = [
     "RUN_OUTCOMES",
     "ManifestError",
     "RunPublisher",
+    "StageArgumentParser",
     "canonical_json_bytes",
     "estimate_input_hash",
     "instance_ids",
     "item_id_for",
     "placement_ids",
     "outcome_exit_code",
+    "package_version",
     "sha256_bytes",
     "sha256_file",
 ]

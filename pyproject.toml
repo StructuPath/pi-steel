@@ -25,3 +25,6 @@ testpaths = ["tests"]
 markers = [
   "full_render: requires optional rendering dependencies and LibreOffice",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["E402"]

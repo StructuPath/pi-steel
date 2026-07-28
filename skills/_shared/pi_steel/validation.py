@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,6 @@ from .contracts import (
 from .geometry_verify import (
     SUPPORTED_SHAPES,
     finite_positive,
-    gross_area,
     hole_within_bounds,
     net_area,
 )
@@ -104,15 +104,22 @@ def _add(
     )
 
 
+@lru_cache(maxsize=1)
+def _schema_validator():
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    return jsonschema.Draft202012Validator(
+        schema, format_checker=jsonschema.FormatChecker()
+    )
+
+
 def _schema_findings(
     package: dict[str, Any], input_hash: str
 ) -> list[dict[str, Any]]:
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    validator = jsonschema.Draft202012Validator(
-        schema, format_checker=jsonschema.FormatChecker()
-    )
     findings = []
-    for error in sorted(validator.iter_errors(package), key=lambda item: list(item.path)):
+    for error in sorted(
+        _schema_validator().iter_errors(package),
+        key=lambda item: list(item.path),
+    ):
         _add(
             findings,
             input_hash,
@@ -377,16 +384,17 @@ def validate_estimate_package(package: dict[str, Any]) -> ValidationResult:
             )
 
     acknowledgements = package.get("review", {}).get("acknowledgements", [])
+    accepted_findings = {
+        (acknowledgement.get("finding_id"), acknowledgement.get("input_hash"))
+        for acknowledgement in acknowledgements
+        if acknowledgement.get("disposition") == "accepted"
+    }
     active = []
     for finding in findings:
         acknowledged = (
             finding["severity"] != "blocker"
-            and any(
-                acknowledgement.get("finding_id") == finding["finding_id"]
-                and acknowledgement.get("input_hash") == finding["relevant_hash"]
-                and acknowledgement.get("disposition") == "accepted"
-                for acknowledgement in acknowledgements
-            )
+            and (finding["finding_id"], finding["relevant_hash"])
+            in accepted_findings
         )
         if not acknowledged:
             active.append(finding)

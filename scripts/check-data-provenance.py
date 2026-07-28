@@ -54,7 +54,6 @@ def audit() -> dict:
     provenance = PROVENANCE_PATH.read_text(encoding="utf-8")
     permission = dataset.get("redistribution_permission")
     release_readiness = dataset.get("release_readiness")
-    release_blocked = permission == "unverified" and release_readiness == "blocked"
     documented_values = (
         dataset.get("claimed_edition"),
         str(expected_rows),

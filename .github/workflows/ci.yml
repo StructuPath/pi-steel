@@ -25,6 +25,7 @@ jobs:
           node-version: "20"
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - run: npm test
+      - run: npm run lint
       - run: npm run privacy:check
       - run: npm run provenance:check
       - run: npm run pack:check

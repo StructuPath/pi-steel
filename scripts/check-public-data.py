@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from bisect import bisect_left
 from pathlib import Path
 
 
@@ -94,9 +95,12 @@ def main() -> int:
         if suffix not in ALLOWED_SUFFIXES and path.name not in ALLOWED_NAMES:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
+        newline_offsets = [
+            index for index, character in enumerate(text) if character == "\n"
+        ]
         for label, pattern in patterns.items():
             for match in pattern.finditer(text):
-                line = text.count("\n", 0, match.start()) + 1
+                line = bisect_left(newline_offsets, match.start()) + 1
                 findings.append(f"{relative}:{line}: {label}")
 
     if findings:

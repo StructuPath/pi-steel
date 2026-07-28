@@ -32,6 +32,7 @@
   },
   "scripts": {
     "doctor": "python3 scripts/doctor.py",
+    "lint": "ruff check skills scripts tests",
     "test": "python3 -m pytest -m 'not full_render'",
     "test:contracts": "python3 -m pytest tests/test_contracts.py tests/test_run_manifests.py tests/test_rfq_workbook_contract.py",
     "test:full": "python3 -m pytest -m full_render",

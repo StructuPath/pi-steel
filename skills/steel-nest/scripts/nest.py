@@ -41,6 +41,7 @@ import json
 import math
 import os
 import sys
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -54,9 +55,11 @@ bootstrap_shared(__file__)
 from pi_steel import (  # noqa: E402
     NEST_RESULT_VERSION,
     RunPublisher,
+    StageArgumentParser,
     canonical_json_bytes,
     item_id_for,
     outcome_exit_code,
+    package_version,
     placement_ids,
     sha256_bytes,
 )
@@ -70,14 +73,6 @@ from pi_steel.geometry_verify import (  # noqa: E402
 
 STEEL_DENSITY = 0.2836  # lb/in^3, A36 mild steel
 NEST_ALGORITHM_VERSION = "maxrects-bssf-u3"
-
-
-class StageArgumentParser(argparse.ArgumentParser):
-    """Use the shared stage contract's exit 1 for command usage errors."""
-
-    def error(self, message):
-        self.print_usage(sys.stderr)
-        self.exit(1, f"{self.prog}: error: {message}\n")
 
 
 # --------------------------------------------------------------------------
@@ -498,13 +493,15 @@ def normalize_job(job):
                     "Use either cost_per_lb or cost_per_sheet for one stock entry, not both.",
                 )
             )
-        for field, value in (
+        for cost_field, value in (
             ("cost_per_lb", per_pound),
             ("cost_per_sheet", per_sheet),
         ):
             if value is not None:
-                parsed_cost = number(value, f"{path}.{field}", nonnegative=True)
-                if field == "cost_per_lb":
+                parsed_cost = number(
+                    value, f"{path}.{cost_field}", nonnegative=True
+                )
+                if cost_field == "cost_per_lb":
                     per_pound = parsed_cost
                 else:
                     per_sheet = parsed_cost
@@ -807,6 +804,10 @@ def _summarize(
     net_approximations = {
         part["net_area_approximation"] for part in normalized["parts"]
     }
+    net_approximation_by_item = {
+        part["item_id"]: part["net_area_approximation"]
+        for part in normalized["parts"]
+    }
 
     for plate in used_plates:
         stock = plate["stock"]
@@ -846,11 +847,7 @@ def _summarize(
             placement.shape == "irregular" for placement in plate["placements"]
         ) else "exact"
         plate_net_statuses = {
-            next(
-                part["net_area_approximation"]
-                for part in normalized["parts"]
-                if part["item_id"] == placement.item_id
-            )
+            net_approximation_by_item[placement.item_id]
             for placement in plate["placements"]
         }
         net_approximation = (
@@ -955,22 +952,22 @@ def _summarize(
     else:
         geometry_readiness = "geometry_verified"
 
+    placements_by_group = defaultdict(list)
+    for plate in plate_reports:
+        for placement in plate["placements"]:
+            placements_by_group[
+                (
+                    placement["material"],
+                    placement["grade"],
+                    placement["thickness"],
+                )
+            ].append(placement)
+
     groups = []
     group_keys = sorted(
         {_material_key(part) for part in normalized["parts"]}, key=repr
     )
     for material, grade, thickness in group_keys:
-        placements = [
-            placement
-            for plate in plate_reports
-            for placement in plate["placements"]
-            if (
-                placement["material"],
-                placement["grade"],
-                placement["thickness"],
-            )
-            == (material, grade, thickness)
-        ]
         groups.append(
             {
                 "group_id": "nest-group:"
@@ -984,7 +981,7 @@ def _summarize(
                 "material": material,
                 "grade": grade,
                 "thickness": thickness,
-                "placements": placements,
+                "placements": placements_by_group[(material, grade, thickness)],
             }
         )
     configuration_hash = sha256_bytes(
@@ -1060,7 +1057,6 @@ def _fmt(v):
 # --------------------------------------------------------------------------
 def rfq_nesting_block(res):
     """Build the versioned nest-to-RFQ handoff without merging stock variants."""
-    from collections import defaultdict
     groups = defaultdict(list)
     for pr in res["plate_reports"]:
         groups[
@@ -1449,14 +1445,6 @@ def stage_decision(res, geometry_verified_only=False):
     return outcome, package_status, findings
 
 
-def package_version():
-    package_path = Path(__file__).resolve().parents[3] / "package.json"
-    try:
-        return json.loads(package_path.read_text(encoding="utf-8"))["version"]
-    except (OSError, KeyError, json.JSONDecodeError):
-        return "unknown"
-
-
 def missing_render_dependencies():
     """Return optional render modules unavailable to this interpreter."""
     modules = ("ezdxf", "matplotlib", "numpy")
@@ -1525,7 +1513,7 @@ def publish_nest_run(job, args):
             "rfq_nesting": "1.0.0",
         },
         tool_versions={
-            "pi_steel": package_version(),
+            "pi_steel": package_version(__file__),
             "nest_algorithm": NEST_ALGORITHM_VERSION,
         },
         explicit_dates={},
