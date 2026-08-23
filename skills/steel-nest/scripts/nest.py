@@ -70,6 +70,9 @@ from pi_steel.geometry_verify import (  # noqa: E402
     SUPPORTED_SHAPES,
     finite_positive,
     hole_within_bounds,
+    hole_within_outline,
+    polygon_area,
+    validate_outline,
     verify_nest_placements,
 )
 
@@ -109,6 +112,7 @@ class Placement:
     ow: float                # original (unrotated) part width
     oh: float                # original (unrotated) part height
     holes: list = field(default_factory=list)   # in original part coords
+    outline: list = field(default_factory=list)  # true profile, original coords
     base_area: float = 0.0   # gross area (bbox for rect, declared area for irregular)
     holes_area: float = 0.0  # total area removed by holes/cutouts
     material: str = ""
@@ -229,6 +233,13 @@ def hole_local(pc, hole):
         # 90deg CCW: (x,y) -> (oh - y, x) inside placed box (oh wide, ow tall)
         return pc["oh"] - hy, hx
     return hx, hy
+
+
+def outline_local(pc, outline):
+    """Outline vertices in the placed part's frame, rotated with the part."""
+    if pc["rotated"]:
+        return [(pc["oh"] - y, x) for x, y in outline]
+    return [(x, y) for x, y in outline]
 
 
 # --------------------------------------------------------------------------
@@ -388,18 +399,48 @@ def normalize_job(job):
                     "Material, grade, and thickness must be explicit before placement.",
                 )
             )
+        outline = part.get("outline")
+        valid_outline = False
+        if outline is not None:
+            if shape != "irregular":
+                findings.append(
+                    _validation_finding(
+                        "outline_on_rect",
+                        f"{path}.outline",
+                        "Outlines describe irregular parts; rectangular parts are exact already.",
+                    )
+                )
+                outline = None
+            else:
+                outline_problems = validate_outline(outline, width, height)
+                for problem in outline_problems:
+                    findings.append(
+                        _validation_finding(
+                            "invalid_outline", f"{path}.outline", problem
+                        )
+                    )
+                valid_outline = not outline_problems
         holes = part.get("holes", []) or []
         holes_area = 0.0
         if finite_positive(width) and finite_positive(height):
             for hole_index, hole in enumerate(holes):
-                if not hole_within_bounds(
-                    _legacy_hole_to_canonical(hole), width, height
-                ):
+                canonical_hole = _legacy_hole_to_canonical(hole)
+                if not hole_within_bounds(canonical_hole, width, height):
                     findings.append(
                         _validation_finding(
                             "invalid_hole_geometry",
                             f"{path}.holes[{hole_index}]",
                             "Hole is unsupported or extends outside the part.",
+                        )
+                    )
+                elif valid_outline and not hole_within_outline(
+                    canonical_hole, outline
+                ):
+                    findings.append(
+                        _validation_finding(
+                            "invalid_hole_geometry",
+                            f"{path}.holes[{hole_index}]",
+                            "Hole must remain inside the part outline, not just its bounding box.",
                         )
                     )
                 try:
@@ -409,7 +450,26 @@ def normalize_job(job):
         base_area = width * height if finite_positive(width) and finite_positive(height) else 0
         approximation = "exact"
         if shape == "irregular":
-            if part.get("area") is None:
+            if valid_outline:
+                exact_area = polygon_area(outline)
+                if part.get("area") is not None:
+                    declared_area = number(
+                        part.get("area"), f"{path}.area", positive=True
+                    )
+                    if (
+                        math.isfinite(declared_area)
+                        and abs(declared_area - exact_area) > 1e-6
+                    ):
+                        findings.append(
+                            _validation_finding(
+                                "outline_area_mismatch",
+                                f"{path}.area",
+                                "Declared area disagrees with the outline's exact area.",
+                            )
+                        )
+                base_area = exact_area
+                approximation = "outline_exact"
+            elif part.get("area") is None:
                 approximation = "bounding_box_estimate"
                 findings.append(
                     _validation_finding(
@@ -469,6 +529,7 @@ def normalize_job(job):
                 "rotatable": bool(part.get("rotatable", True)),
                 "shape": shape,
                 "holes": holes,
+                "outline": outline if valid_outline else [],
                 "base_area": base_area,
                 "holes_area": holes_area,
                 "net_area_approximation": approximation,
@@ -735,6 +796,7 @@ def run_job(job):
                 ow=unit["w"],
                 oh=unit["h"],
                 holes=unit["holes"],
+                outline=unit["outline"],
                 base_area=unit["base_area"],
                 holes_area=unit["holes_area"],
                 material=unit["material"],
@@ -793,6 +855,14 @@ def run_job(job):
 
 def _metric(value, approximation):
     return {"value": round(value, 1), "approximation": approximation}
+
+
+def _net_status(statuses):
+    """Least-exact net-area status wins: estimates dominate exact outlines."""
+    for status in ("bounding_box_estimate", "declared_area", "outline_exact"):
+        if status in statuses:
+            return status
+    return "exact"
 
 
 def _remnant_candidates(plate, margin, spacing):
@@ -885,15 +955,7 @@ def _summarize(
             net_approximation_by_item[placement.item_id]
             for placement in plate["placements"]
         }
-        net_approximation = (
-            "exact"
-            if plate_net_statuses == {"exact"}
-            else (
-                "bounding_box_estimate"
-                if "bounding_box_estimate" in plate_net_statuses
-                else "declared_area"
-            )
-        )
+        net_approximation = _net_status(plate_net_statuses)
         report = {
             "index": plate["index"],
             "stock": stock["name"],
@@ -935,11 +997,7 @@ def _summarize(
     else:
         cost_status, cost_total = "not_provided", None
     packing_status = "bounding_box" if has_irregular else "exact"
-    net_status = (
-        "bounding_box_estimate"
-        if "bounding_box_estimate" in net_approximations
-        else ("declared_area" if "declared_area" in net_approximations else "exact")
-    )
+    net_status = _net_status(net_approximations)
     metrics = {
         "packing_utilization_pct": _metric(
             100 * total_packing_area / total_plate_area if total_plate_area else 0,
@@ -1273,9 +1331,17 @@ def render_layout(res, outdir):
                 w, h = pc["w"], pc["h"]
                 irregular = pc["shape"] == "irregular"
                 face = "#f4c9a0" if irregular else "#a9c8e8"
-                ax.add_patch(mpatches.Rectangle((x, y), w, h, facecolor=face,
-                                                edgecolor="#1a3b5c", lw=1.2,
-                                                hatch="///" if irregular else None, alpha=0.9))
+                if pc.get("outline"):
+                    ax.add_patch(mpatches.Rectangle(
+                        (x, y), w, h, fill=False, ec="#c9a227", lw=0.6, ls=":"))
+                    ax.add_patch(mpatches.Polygon(
+                        [(x + vx, y + vy) for vx, vy in outline_local(pc, pc["outline"])],
+                        closed=True, facecolor=face, edgecolor="#1a3b5c",
+                        lw=1.2, alpha=0.9))
+                else:
+                    ax.add_patch(mpatches.Rectangle((x, y), w, h, facecolor=face,
+                                                    edgecolor="#1a3b5c", lw=1.2,
+                                                    hatch="///" if irregular else None, alpha=0.9))
                 for hole in pc.get("holes", []):
                     lx, ly = hole_local(pc, hole)
                     cx, cy = x + lx, y + ly
@@ -1322,11 +1388,18 @@ def _draw_part_dxf(msp, pc, x0, y0, profile_layer, holes_layer, notes_layer, lab
     import ezdxf
     x, y = x0 + pc["x"], y0 + pc["y"]
     w, h = pc["w"], pc["h"]
-    msp.add_lwpolyline(
-        [(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
-        close=True,
-        dxfattribs={"layer": profile_layer},
-    )
+    if pc.get("outline"):
+        msp.add_lwpolyline(
+            [(x + vx, y + vy) for vx, vy in outline_local(pc, pc["outline"])],
+            close=True,
+            dxfattribs={"layer": profile_layer},
+        )
+    else:
+        msp.add_lwpolyline(
+            [(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
+            close=True,
+            dxfattribs={"layer": profile_layer},
+        )
     for hole in pc.get("holes", []):
         lx, ly = hole_local(pc, hole)
         cx, cy = x + lx, y + ly

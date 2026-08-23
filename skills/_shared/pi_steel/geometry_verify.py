@@ -44,9 +44,196 @@ def hole_within_bounds(hole: dict[str, Any], width: float, height: float) -> boo
     return False
 
 
+def _finite_point(point: Any) -> bool:
+    return (
+        isinstance(point, (list, tuple))
+        and len(point) == 2
+        and all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            for value in point
+        )
+    )
+
+
+def polygon_area(outline: list[Any]) -> float:
+    """Absolute shoelace area of a closed polygon given as vertex pairs."""
+    total = 0.0
+    count = len(outline)
+    for index in range(count):
+        x1, y1 = outline[index]
+        x2, y2 = outline[(index + 1) % count]
+        total += x1 * y2 - x2 * y1
+    return abs(total) / 2.0
+
+
+def _segments_properly_intersect(p1, p2, p3, p4) -> bool:
+    """Whether open segments p1-p2 and p3-p4 cross (shared endpoints excluded)."""
+
+    def orient(a, b, c):
+        value = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        if value > 1e-12:
+            return 1
+        if value < -1e-12:
+            return -1
+        return 0
+
+    o1, o2 = orient(p1, p2, p3), orient(p1, p2, p4)
+    o3, o4 = orient(p3, p4, p1), orient(p3, p4, p2)
+    return o1 != o2 and o3 != o4 and 0 not in (o1, o2, o3, o4)
+
+
+def polygon_is_simple(outline: list[Any]) -> bool:
+    """Whether non-adjacent edges never cross (a non-self-intersecting ring)."""
+    count = len(outline)
+    edges = [
+        (outline[index], outline[(index + 1) % count]) for index in range(count)
+    ]
+    for first in range(count):
+        for second in range(first + 1, count):
+            if second == first + 1 or (first == 0 and second == count - 1):
+                continue
+            if _segments_properly_intersect(*edges[first], *edges[second]):
+                return False
+    return True
+
+
+def point_in_polygon(point: Any, outline: list[Any]) -> bool:
+    """Ray-casting containment; boundary points count as inside."""
+    x, y = point
+    inside = False
+    count = len(outline)
+    for index in range(count):
+        x1, y1 = outline[index]
+        x2, y2 = outline[(index + 1) % count]
+        if _point_on_segment((x, y), (x1, y1), (x2, y2)):
+            return True
+        if (y1 > y) != (y2 > y):
+            crossing = (x2 - x1) * (y - y1) / (y2 - y1) + x1
+            if x < crossing:
+                inside = not inside
+    return inside
+
+
+def _point_on_segment(point, start, end) -> bool:
+    px, py = point
+    x1, y1 = start
+    x2, y2 = end
+    cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+    if abs(cross) > 1e-9:
+        return False
+    return (
+        min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9
+        and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9
+    )
+
+
+def _point_segment_distance(point, start, end) -> float:
+    px, py = point
+    x1, y1 = start
+    x2, y2 = end
+    dx, dy = x2 - x1, y2 - y1
+    length_squared = dx * dx + dy * dy
+    if length_squared == 0:
+        return math.hypot(px - x1, py - y1)
+    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / length_squared))
+    return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+
+
+def validate_outline(
+    outline: Any, width: Any, height: Any
+) -> list[str]:
+    """Return human-readable problems with an irregular part outline.
+
+    A valid outline is a simple polygon of at least three finite vertex
+    pairs whose bounding box matches the declared width and height (the
+    outline defines the part in its own local frame).
+    """
+    problems: list[str] = []
+    if not isinstance(outline, list) or len(outline) < 3:
+        return ["Outline requires at least three [x, y] vertex pairs."]
+    if not all(_finite_point(point) for point in outline):
+        return ["Outline vertices must be finite [x, y] pairs."]
+    if not polygon_is_simple(outline):
+        problems.append("Outline edges must not cross (simple polygon).")
+    if polygon_area(outline) <= 1e-9:
+        problems.append("Outline must enclose a positive area.")
+    if finite_positive(width) and finite_positive(height):
+        xs = [point[0] for point in outline]
+        ys = [point[1] for point in outline]
+        epsilon = 1e-6
+        if (
+            min(xs) < -epsilon
+            or min(ys) < -epsilon
+            or max(xs) > width + epsilon
+            or max(ys) > height + epsilon
+            or abs(min(xs)) > epsilon
+            or abs(min(ys)) > epsilon
+            or abs(max(xs) - width) > epsilon
+            or abs(max(ys) - height) > epsilon
+        ):
+            problems.append(
+                "Outline bounding box must span exactly 0..width and 0..height."
+            )
+    return problems
+
+
+def hole_within_outline(hole: dict[str, Any], outline: list[Any]) -> bool:
+    """Exact containment of a supported hole inside the part outline."""
+    x, y = hole.get("x"), hole.get("y")
+    if not all(
+        isinstance(value, (int, float)) and math.isfinite(value)
+        for value in (x, y)
+    ):
+        return False
+    count = len(outline)
+    edges = [
+        (outline[index], outline[(index + 1) % count]) for index in range(count)
+    ]
+    if hole.get("kind") == "round":
+        diameter = hole.get("diameter")
+        if not finite_positive(diameter):
+            return False
+        radius = diameter / 2
+        if not point_in_polygon((x, y), outline):
+            return False
+        return all(
+            _point_segment_distance((x, y), start, end) >= radius - 1e-9
+            for start, end in edges
+        )
+    if hole.get("kind") == "rect":
+        hole_width, hole_height = hole.get("width"), hole.get("height")
+        if not finite_positive(hole_width) or not finite_positive(hole_height):
+            return False
+        corners = [
+            (x - hole_width / 2, y - hole_height / 2),
+            (x + hole_width / 2, y - hole_height / 2),
+            (x + hole_width / 2, y + hole_height / 2),
+            (x - hole_width / 2, y + hole_height / 2),
+        ]
+        if not all(point_in_polygon(corner, outline) for corner in corners):
+            return False
+        rect_edges = [
+            (corners[index], corners[(index + 1) % 4]) for index in range(4)
+        ]
+        return not any(
+            _segments_properly_intersect(*rect_edge, *edge)
+            for rect_edge in rect_edges
+            for edge in edges
+        )
+    return False
+
+
 def gross_area(geometry: dict[str, Any]) -> float:
-    if geometry.get("shape") == "irregular" and geometry.get("area") is not None:
-        return geometry["area"]
+    if geometry.get("shape") == "irregular":
+        outline = geometry.get("outline")
+        if isinstance(outline, list) and len(outline) >= 3 and all(
+            _finite_point(point) for point in outline
+        ):
+            return polygon_area(outline)
+        if geometry.get("area") is not None:
+            return geometry["area"]
     return geometry.get("width", 0) * geometry.get("height", 0)
 
 

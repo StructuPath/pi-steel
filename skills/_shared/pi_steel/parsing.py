@@ -167,6 +167,8 @@ def adapt_legacy_nest(
         }
         if "area" in part:
             geometry["area"] = part["area"]
+        if "outline" in part:
+            geometry["outline"] = part["outline"]
         item = {
             "intent": "fabricated_part",
             "source_id": source_id,

@@ -183,6 +183,8 @@ def nest_job_from_package(
         }
         if geometry.get("area") is not None:
             part["area"] = geometry["area"]
+        if geometry.get("outline") is not None:
+            part["outline"] = geometry["outline"]
         parts.append(part)
     return {
         "job_name": package["project"].get("name")

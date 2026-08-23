@@ -21,7 +21,10 @@ from .geometry_verify import (
     SUPPORTED_SHAPES,
     finite_positive,
     hole_within_bounds,
+    hole_within_outline,
     net_area,
+    polygon_area,
+    validate_outline,
 )
 
 
@@ -249,6 +252,42 @@ def _geometry_findings(
                 f"{base}.{field}",
                 f"{field} must be greater than zero.",
             )
+    outline = geometry.get("outline")
+    valid_outline = False
+    if outline is not None:
+        if shape != "irregular":
+            _add(
+                findings,
+                input_hash,
+                "outline_on_rect",
+                "blocker",
+                f"{base}.outline",
+                "Outlines describe irregular parts; rectangular parts are exact already.",
+            )
+        else:
+            problems = validate_outline(
+                outline, geometry.get("width"), geometry.get("height")
+            )
+            for problem in problems:
+                _add(
+                    findings,
+                    input_hash,
+                    "invalid_outline",
+                    "blocker",
+                    f"{base}.outline",
+                    problem,
+                )
+            valid_outline = not problems
+            if valid_outline and finite_positive(geometry.get("area")):
+                if abs(polygon_area(outline) - geometry["area"]) > 1e-6:
+                    _add(
+                        findings,
+                        input_hash,
+                        "outline_area_mismatch",
+                        "blocker",
+                        f"{base}.area",
+                        "Declared area disagrees with the outline's exact area.",
+                    )
     width, height = geometry.get("width"), geometry.get("height")
     if finite_positive(width) and finite_positive(height):
         for hole_index, hole in enumerate(geometry.get("holes", [])):
@@ -260,6 +299,15 @@ def _geometry_findings(
                     "blocker",
                     f"{base}.holes[{hole_index}]",
                     "Hole geometry must be positive and contained by the part.",
+                )
+            elif valid_outline and not hole_within_outline(hole, outline):
+                _add(
+                    findings,
+                    input_hash,
+                    "hole_outside_outline",
+                    "blocker",
+                    f"{base}.holes[{hole_index}]",
+                    "Hole must remain inside the part outline, not just its bounding box.",
                 )
         try:
             area = net_area(geometry)
@@ -274,14 +322,18 @@ def _geometry_findings(
                 base,
                 "Part net area after holes must be greater than zero.",
             )
-        if shape == "irregular" and not finite_positive(geometry.get("area")):
+        if (
+            shape == "irregular"
+            and outline is None
+            and not finite_positive(geometry.get("area"))
+        ):
             _add(
                 findings,
                 input_hash,
                 "invalid_irregular_area",
                 "blocker",
                 f"{base}.area",
-                "Irregular parts require a positive true-cut area.",
+                "Irregular parts require a positive true-cut area or an outline.",
             )
 
 
