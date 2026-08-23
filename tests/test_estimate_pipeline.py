@@ -511,3 +511,84 @@ def test_nonfinite_mill_lengths_fail_as_usage_error(tmp_path):
     )
     assert completed.returncode == 1
     assert "finite" in completed.stderr
+
+
+def test_declared_vendor_linear_stock_overrides_default_mill_lengths(tmp_path):
+    package = load_package()
+    package["stock"].append(
+        {
+            "stock_kind": "purchasable",
+            "stock_form": "linear",
+            "inventory_id": "SYNTHETIC-VENDOR-W12-45",
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_ft": 45,
+            "quantity": 1,
+            "unlimited": True,
+        }
+    )
+    completed, run_path = run_pipeline(
+        tmp_path, package, "SYNTHETIC-PIPELINE-VENDOR-LINEAR"
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    cutlist = load_json(run_path / "cutlist-result.json")
+    rows = {row["designation"]: row for row in cutlist["purchase_summary"]}
+    assert rows["W12X26"]["stock_id"] == "SYNTHETIC-VENDOR-W12-45"
+    assert rows["W12X26"]["bar_length_in"] == 540.0
+    assert rows["HSS6X6X3/8"]["stock_id"].startswith("mill:")
+
+
+def test_confirmed_on_hand_linear_stick_eliminates_group_purchase(tmp_path):
+    package = load_package()
+    stick = {
+        "stock_kind": "on_hand",
+        "stock_form": "linear",
+        "inventory_id": "SYNTHETIC-YARD-W12-30",
+        "designation": "W12X26",
+        "grade": "A992",
+        "length_ft": 30,
+        "quantity": 1,
+        "status": "available",
+        "measured_at": "2026-07-27",
+        "source": "synthetic yard count",
+    }
+    package["stock"].append(stick)
+    stick["reviewer_confirmation"] = {
+        "actor": "Synthetic Reviewer",
+        "timestamp": "2026-07-28T00:00:00Z",
+        "estimate_hash": estimate_input_hash(package),
+    }
+    completed, run_path = run_pipeline(
+        tmp_path, package, "SYNTHETIC-PIPELINE-ONHAND-LINEAR"
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    cutlist = load_json(run_path / "cutlist-result.json")
+    rows = {row["designation"]: row for row in cutlist["purchase_summary"]}
+    assert rows["W12X26"]["stock_id"] == "SYNTHETIC-YARD-W12-30"
+    assert rows["W12X26"]["stock_kind"] == "on_hand"
+    assert rows["W12X26"]["total_cost"] is None
+    assert rows["HSS6X6X3/8"]["stock_kind"] == "purchasable"
+
+
+def test_unconfirmed_on_hand_linear_stick_blocks_validation(tmp_path):
+    package = load_package()
+    package["stock"].append(
+        {
+            "stock_kind": "on_hand",
+            "stock_form": "linear",
+            "inventory_id": "SYNTHETIC-YARD-UNCONFIRMED",
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_ft": 30,
+            "quantity": 1,
+        }
+    )
+    completed, run_path = run_pipeline(
+        tmp_path, package, "SYNTHETIC-PIPELINE-ONHAND-UNCONFIRMED"
+    )
+    assert completed.returncode == 3
+    qa_report = load_json(run_path / "qa-report.json")
+    assert any(
+        finding["code"] == "unconfirmed_on_hand_stock"
+        for finding in qa_report["findings"]
+    )

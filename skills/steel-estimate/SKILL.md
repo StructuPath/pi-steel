@@ -18,6 +18,10 @@ authorize a purchase. The workbook remains `DRAFT — NOT SENT OR AWARDED`.
 - A runtime company profile accepted by `steel-rfq`.
 - Plate stock compatible with every plate part by material, grade, thickness,
   and usable dimensions.
+- Optional linear stock (`stock_form: "linear"`): purchasable vendor lengths
+  (which replace the default mill lengths for their designation + grade
+  group) and on-hand sticks, which require the same hash-bound reviewer
+  confirmation as on-hand plate before they can reduce purchasing.
 
 Use `references/estimate-package-example.json` as a synthetic input example.
 The company profile resolution and approval rules are documented by

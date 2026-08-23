@@ -15,7 +15,7 @@ It complements `steel-nest` (2D plates). Plates go to `steel-nest`; anything bou
 
 **Reliable:**
 - Exact 1D packing per designation + grade group. Stock never crosses groups: a W12X26 member is only cut from W12X26 stock of the same grade.
-- A deterministic strategy portfolio per group — a mixed-stock greedy plus each single-stock-length restriction — ranked by fewest unplaced members, least total stock length, lowest known purchase cost, then fewest bars. The same input always produces the same plan.
+- A deterministic strategy portfolio per group — a mixed-stock greedy plus each single-stock-length restriction — ranked by fewest unplaced members, least purchased stock length (on-hand consumption is free), lowest known purchase cost, fewest purchased bars, then least total length. The same input always produces the same plan.
 - Explicit fit contract: usable length = bar length − 2 × end trim; a piece fits when its length alone fits the remainder; each placed piece then consumes its length plus one kerf, saturating at the bar end.
 - Independent post-placement verification (bar overcommitment, material mismatch, duplicate or missing instances) before any cutting list is published.
 - Drops classified against a reusable-candidate threshold (`min_drop_in`) — candidates are never certified reusable stock.
@@ -85,4 +85,4 @@ The engine writes `rfq_linear.json` — `{schema_version, source_cutlist_result_
 
 **Drop reuse** — output drops are candidates only. Measure, identify, and approve a candidate before supplying it as its own finite stock entry in a later run (a shorter `length_in` entry with `qty: 1`).
 
-**On-hand material first** — enter on-hand bars as a finite-quantity stock entry alongside purchasable lengths; the portfolio will use them when they reduce total length or cost.
+**On-hand material first** — enter on-hand bars as finite-quantity stock entries with `"stock_kind": "on_hand"` alongside purchasable lengths. On-hand stock must be finite and carries no cost basis; the portfolio minimizes purchased length first, so sticks are consumed whenever they genuinely reduce buying, and every report labels on-hand rows explicitly.

@@ -82,13 +82,17 @@
         "type": "object",
         "required": [
           "stock_id",
+          "stock_kind",
           "designation",
           "grade",
           "bar_length_in",
           "bars_needed",
           "total_length_ft",
           "total_cost"
-        ]
+        ],
+        "properties": {
+          "stock_kind": { "enum": ["purchasable", "on_hand"] }
+        }
       }
     },
     "drops": {
@@ -158,6 +162,7 @@
       "required": [
         "index",
         "stock_id",
+        "stock_kind",
         "designation",
         "grade",
         "bar_length_in",
@@ -174,6 +179,7 @@
         "cost_basis"
       ],
       "properties": {
+        "stock_kind": { "enum": ["purchasable", "on_hand"] },
         "drop_class": { "enum": ["reusable_candidate", "offcut"] },
         "cuts": {
           "type": "array",

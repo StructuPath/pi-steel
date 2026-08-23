@@ -314,6 +314,16 @@ def normalize_job(job):
     stock_types = []
     for index, stock in enumerate(job.get("stock", [])):
         path = f"$.stock[{index}]"
+        stock_kind = stock.get("stock_kind", "purchasable")
+        if stock_kind not in {"purchasable", "on_hand"}:
+            findings.append(
+                _validation_finding(
+                    "invalid_stock_kind",
+                    f"{path}.stock_kind",
+                    "Stock kind must be purchasable or on_hand.",
+                )
+            )
+            stock_kind = "purchasable"
         designation = normalize_designation(stock.get("designation", ""))
         if not designation:
             findings.append(
@@ -343,6 +353,14 @@ def normalize_job(job):
                 )
             )
         unlimited = bool(stock.get("unlimited", False))
+        if unlimited and stock_kind == "on_hand":
+            findings.append(
+                _validation_finding(
+                    "unlimited_on_hand_stock",
+                    f"{path}.unlimited",
+                    "On-hand stock must be a finite, measured quantity.",
+                )
+            )
         try:
             quantity = math.inf if unlimited else int(stock.get("qty", 1))
             quantity_valid = unlimited or (
@@ -368,6 +386,14 @@ def normalize_job(job):
                     "Use either cost_per_ft or cost_per_bar for one stock entry, not both.",
                 )
             )
+        if stock_kind == "on_hand" and (per_foot is not None or per_bar is not None):
+            findings.append(
+                _validation_finding(
+                    "cost_basis_on_hand_stock",
+                    path,
+                    "On-hand stock carries no purchase cost basis; cost applies to purchasable stock only.",
+                )
+            )
         if per_foot is not None:
             per_foot = number(per_foot, f"{path}.cost_per_ft", nonnegative=True)
         if per_bar is not None:
@@ -387,6 +413,7 @@ def normalize_job(job):
             {
                 "stock_id": stock_id,
                 "name": stock.get("name", designation or "Bar"),
+                "stock_kind": stock_kind,
                 "designation": designation,
                 "grade": grade,
                 "length_in": length,
@@ -557,13 +584,21 @@ def _bar_cost(stock):
     return None
 
 
+def _ranking_cost(stock):
+    """Purchase outlay used for strategy ranking; on-hand material costs nothing."""
+    if stock["stock_kind"] == "on_hand":
+        return 0.0
+    return _bar_cost(stock)
+
+
 def _solve_group(units, group_stock, kerf):
     """Try a portfolio of deterministic strategies; keep the cheapest result.
 
     Candidates: the mixed-stock greedy plus each single-stock-length
-    restriction. Solutions rank by fewest unplaced members, least total stock
-    length, lowest known purchase cost (unknown costs rank last), then fewest
-    bars. Ties resolve by strategy name for determinism.
+    restriction. Solutions rank by fewest unplaced members, least PURCHASED
+    stock length (on-hand consumption is free), lowest known purchase cost
+    (unknown costs rank last), fewest purchased bars, then least total
+    length. Ties resolve by strategy name for determinism.
     """
     strategies = [("mixed", group_stock)]
     for stock in group_stock:
@@ -573,15 +608,20 @@ def _solve_group(units, group_stock, kerf):
     for name, stocks in strategies:
         bars, unplaced = _greedy_pack(units, stocks, kerf, group_stock)
         total_length = sum(bar["stock"]["length_in"] for bar in bars)
-        costs = [_bar_cost(bar["stock"]) for bar in bars]
+        purchased = [
+            bar for bar in bars if bar["stock"]["stock_kind"] == "purchasable"
+        ]
+        purchased_length = sum(bar["stock"]["length_in"] for bar in purchased)
+        costs = [_ranking_cost(bar["stock"]) for bar in bars]
         cost_rank = (
-            round(sum(costs), 2) if costs and None not in costs else math.inf
+            round(sum(costs), 2) if None not in costs else math.inf
         )
         rank = (
             sum(1 for _ in unplaced),
-            round(total_length, 6),
+            round(purchased_length, 6),
             cost_rank,
-            len(bars),
+            len(purchased),
+            round(total_length, 6),
             name,
         )
         if best_rank is None or rank < best_rank:
@@ -782,7 +822,10 @@ def _summarize(normalized, used_bars, unplaced, validation_findings, normalized_
         kerf_total = kerf * len(cuts)
         used_length = min(cut_length + kerf_total, stock["usable_in"])
         drop = max(stock["usable_in"] - used_length, 0.0)
-        if stock["cost_per_bar"] is not None:
+        if stock["stock_kind"] == "on_hand":
+            bar_cost = None
+            cost_basis = "on_hand"
+        elif stock["cost_per_bar"] is not None:
             bar_cost = stock["cost_per_bar"]
             cost_basis = "per_bar"
         elif stock["cost_per_ft"] is not None:
@@ -798,6 +841,7 @@ def _summarize(normalized, used_bars, unplaced, validation_findings, normalized_
             "index": bar["index"],
             "stock": stock["name"],
             "stock_id": stock["stock_id"],
+            "stock_kind": stock["stock_kind"],
             "designation": stock["designation"],
             "grade": stock["grade"],
             "bar_length_in": stock["length_in"],
@@ -885,6 +929,7 @@ def _summarize(normalized, used_bars, unplaced, validation_findings, normalized_
         row["bars"] += 1
         row["length_in"] += report["bar_length_in"]
         row["stock_name"] = report["stock"]
+        row["stock_kind"] = report["stock_kind"]
         row["designation"] = report["designation"]
         row["grade"] = report["grade"]
         row["bar_length_in"] = report["bar_length_in"]
@@ -896,6 +941,7 @@ def _summarize(normalized, used_bars, unplaced, validation_findings, normalized_
         {
             "stock_id": stock_id,
             "stock_name": row["stock_name"],
+            "stock_kind": row["stock_kind"],
             "designation": row["designation"],
             "grade": row["grade"],
             "bar_length_in": row["bar_length_in"],
@@ -1057,6 +1103,7 @@ def rfq_linear_block(res):
             {
                 "stock_id": purchase["stock_id"],
                 "stock_name": purchase["stock_name"],
+                "stock_kind": purchase["stock_kind"],
                 "designation": purchase["designation"],
                 "grade": purchase["grade"],
                 "bar_length_in": purchase["bar_length_in"],
@@ -1137,10 +1184,11 @@ def render_text(res):
             cost_text = (
                 f"  ${row['total_cost']:,.2f}" if row["total_cost"] is not None else ""
             )
+            on_hand_text = "  (on hand)" if row["stock_kind"] == "on_hand" else ""
             lines.append(
                 f"    {row['bars_needed']} x {_fmt(row['bar_length_in'])} in "
                 f"{row['designation']} {row['grade']} "
-                f"({row['total_length_ft']} ft){cost_text}"
+                f"({row['total_length_ft']} ft){cost_text}{on_hand_text}"
             )
         lines.append("")
     if res["drops"]:

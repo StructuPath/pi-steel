@@ -35,7 +35,9 @@ from pi_steel import (  # noqa: E402
     sha256_bytes,
 )
 from pi_steel.contracts import ESTIMATE_PACKAGE_VERSION  # noqa: E402
+from pi_steel.parsing import normalize_designation  # noqa: E402
 from pi_steel.validation import (  # noqa: E402
+    eligible_on_hand_linear_stock,
     eligible_on_hand_stock,
     validate_estimate_package,
 )
@@ -142,6 +144,8 @@ def nest_job_from_package(
         return None
     stock_rows = []
     for index, stock in enumerate(package.get("stock", []), start=1):
+        if stock.get("stock_form") == "linear":
+            continue
         if (
             stock["stock_kind"] == "on_hand"
             and stock.get("inventory_id") not in eligible_inventory_ids
@@ -229,8 +233,14 @@ def cutlist_job_from_package(
     kerf_in: float,
     end_trim_in: float,
     min_drop_in: float,
+    eligible_linear_inventory_ids: set[str] = frozenset(),
 ) -> dict[str, Any] | None:
-    """Build the linear optimization job for member items purchased by length."""
+    """Build the linear optimization job for member items purchased by length.
+
+    Declared purchasable linear stock replaces the default mill lengths for
+    its designation + grade group; confirmed on-hand sticks are added as
+    finite-quantity entries.
+    """
     member_items = [
         item
         for item in package["items"]
@@ -263,18 +273,53 @@ def cutlist_job_from_package(
         },
         key=repr,
     )
-    stock = [
-        {
-            "stock_id": f"mill:{designation}:{grade}:{length_ft:g}ft",
-            "name": f"{designation} {length_ft:g} ft mill length",
-            "designation": designation,
-            "grade": grade,
-            "length_ft": length_ft,
-            "unlimited": True,
+    stock = []
+    declared_purchasable_groups = set()
+    for index, entry in enumerate(package.get("stock", []), start=1):
+        if entry.get("stock_form") != "linear":
+            continue
+        if (
+            entry["stock_kind"] == "on_hand"
+            and entry.get("inventory_id") not in eligible_linear_inventory_ids
+        ):
+            continue
+        row = {
+            "stock_id": entry.get("inventory_id") or f"vendor-linear:{index:04d}",
+            "name": entry.get("inventory_id")
+            or (
+                f"{entry['designation']} {entry['length_ft']:g} ft "
+                "vendor length"
+            ),
+            "stock_kind": entry["stock_kind"],
+            "designation": entry["designation"],
+            "grade": entry["grade"],
+            "length_ft": entry["length_ft"],
+            "qty": entry["quantity"],
         }
-        for designation, grade in groups
-        for length_ft in mill_lengths_ft
-    ]
+        if entry.get("unlimited") and entry["stock_kind"] == "purchasable":
+            row["unlimited"] = True
+        stock.append(row)
+        if entry["stock_kind"] == "purchasable":
+            declared_purchasable_groups.add(
+                (normalize_designation(entry["designation"]), entry["grade"])
+            )
+    for designation, grade in groups:
+        if (
+            normalize_designation(designation),
+            grade,
+        ) in declared_purchasable_groups:
+            continue
+        stock.extend(
+            {
+                "stock_id": f"mill:{designation}:{grade}:{length_ft:g}ft",
+                "name": f"{designation} {length_ft:g} ft mill length",
+                "designation": designation,
+                "grade": grade,
+                "length_ft": length_ft,
+                "unlimited": True,
+            }
+            for length_ft in mill_lengths_ft
+        )
     return {
         "job_name": package["project"].get("name")
         or package["project"]["project_id"],
@@ -536,6 +581,14 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         if not validation.blockers
         else set()
     )
+    eligible_linear_inventory_ids = (
+        {
+            stock["inventory_id"]
+            for stock in eligible_on_hand_linear_stock(package)
+        }
+        if not validation.blockers
+        else set()
+    )
     findings = [
         {
             "code": finding["code"],
@@ -645,6 +698,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
             kerf_in=args.cutlist_kerf_in,
             end_trim_in=args.end_trim_in,
             min_drop_in=args.min_drop_in,
+            eligible_linear_inventory_ids=eligible_linear_inventory_ids,
         )
         if cutlist_job is not None:
             cutlist_result = cutlist_engine.run_job(cutlist_job)

@@ -23,7 +23,12 @@
     },
     "stock": {
       "type": "array",
-      "items": { "$ref": "#/$defs/stock" }
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/stock" },
+          { "$ref": "#/$defs/linearStock" }
+        ]
+      }
     },
     "commercial_basis": { "$ref": "#/$defs/commercialBasis" },
     "assumptions": {
@@ -248,6 +253,41 @@
         "height": { "type": "number", "exclusiveMinimum": 0 },
         "thickness": { "type": "number", "exclusiveMinimum": 0 },
         "quantity": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["available", "reserved", "unavailable"] },
+        "measured_at": { "type": "string", "format": "date" },
+        "source": { "type": "string" },
+        "reviewer_confirmation": {
+          "type": "object",
+          "required": ["actor", "timestamp", "estimate_hash"],
+          "properties": {
+            "actor": { "type": "string", "minLength": 1 },
+            "timestamp": { "type": "string", "format": "date-time" },
+            "estimate_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "linearStock": {
+      "type": "object",
+      "required": [
+        "stock_kind",
+        "stock_form",
+        "designation",
+        "grade",
+        "length_ft",
+        "quantity"
+      ],
+      "properties": {
+        "stock_kind": { "enum": ["on_hand", "purchasable"] },
+        "stock_form": { "const": "linear" },
+        "inventory_id": { "type": "string", "minLength": 1 },
+        "designation": { "type": "string", "minLength": 1 },
+        "grade": { "type": "string", "minLength": 1 },
+        "length_ft": { "type": "number", "exclusiveMinimum": 0 },
+        "quantity": { "type": "integer", "minimum": 1 },
+        "unlimited": { "type": "boolean" },
         "status": { "enum": ["available", "reserved", "unavailable"] },
         "measured_at": { "type": "string", "format": "date" },
         "source": { "type": "string" },

@@ -428,3 +428,70 @@ def test_cutting_list_preserves_sixteenth_inch_precision():
     result = cutlist.run_job(job)
     csv_text = cutlist.render_cutting_list_csv(result)
     assert "342.0625" in csv_text
+
+
+def test_on_hand_stick_covering_members_eliminates_purchasing():
+    job = base_job()
+    job["members"] = [
+        {
+            "source_id": "SYNTHETIC-M-SHORT",
+            "name": "SYNTHETIC-SHORT",
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_in": 144,
+            "qty": 2,
+        }
+    ]
+    job["stock"].append(
+        {
+            "stock_id": "SYNTHETIC-ONHAND-30",
+            "stock_kind": "on_hand",
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_ft": 30,
+            "qty": 1,
+        }
+    )
+    result = cutlist.run_job(job)
+    assert result["outcome"] == "ready"
+    assert result["bars_used"] == 1
+    report = result["bar_reports"][0]
+    assert report["stock_kind"] == "on_hand"
+    assert report["cost_basis"] == "on_hand"
+    assert report["bar_cost"] is None
+    summary = result["purchase_summary"][0]
+    assert summary["stock_kind"] == "on_hand"
+    assert result["cost"]["status"] == "known"
+    assert result["total_material_cost"] == 0.0
+    assert result["rfq_linear"]["rows"][0]["stock_kind"] == "on_hand"
+
+
+def test_on_hand_stock_rejects_unlimited_and_cost_basis():
+    job = base_job()
+    job["stock"].append(
+        {
+            "stock_id": "SYNTHETIC-ONHAND-BAD",
+            "stock_kind": "on_hand",
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_ft": 30,
+            "unlimited": True,
+            "cost_per_ft": 10.0,
+        }
+    )
+    result = cutlist.run_job(job)
+    codes = {finding["code"] for finding in result["validation_findings"]}
+    assert "unlimited_on_hand_stock" in codes
+    assert "cost_basis_on_hand_stock" in codes
+    assert result["outcome"] == "blocked"
+
+
+def test_invalid_stock_kind_is_an_error():
+    job = base_job()
+    job["stock"][0]["stock_kind"] = "borrowed"
+    result = cutlist.run_job(job)
+    assert any(
+        finding["code"] == "invalid_stock_kind"
+        for finding in result["validation_findings"]
+    )
+    assert result["outcome"] == "blocked"

@@ -36,6 +36,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and staleness validation against the estimate identity.
 - `cutlist-result` schema (`1.0.0`) and the `cutlist_partial` /
   `cutlist_verified` package statuses.
+- **Linear stock in the canonical contract** — `stock` entries with
+  `stock_form: "linear"` model vendor-declared purchasable lengths and
+  on-hand sticks. Declared purchasable lengths replace the default mill
+  lengths for their designation + grade group; on-hand sticks require the
+  same hash-bound reviewer confirmation as on-hand plate and enter the
+  optimizer as finite, cost-free inventory. The portfolio ranks by
+  purchased length first, so confirmed sticks reduce buying whenever they
+  genuinely can, and purchase summaries, handoffs, and reports label
+  `on_hand` rows explicitly.
 
 ## [0.2.3] - 2026-07-28
 
