@@ -531,3 +531,84 @@ def test_anonymous_on_hand_and_purchasable_rows_get_distinct_ids():
         for finding in result["validation_findings"]
     )
     assert result["outcome"] == "ready"
+
+
+def test_exact_search_beats_greedy_on_classic_bfd_failure():
+    # Best-fit-decreasing packs [5,5], [4,4], [3,3,3], [3] onto four bars of
+    # capacity 10; the exact search finds the optimal [5,5], [4,3,3], [4,3,3].
+    job = {
+        "job_name": "SYNTHETIC-EXACT",
+        "project_id": "SYNTHETIC-PRJ",
+        "revision_id": "SYNTHETIC-REV",
+        "unit_system": "imperial",
+        "settings": {"kerf_in": 0, "end_trim_in": 0, "min_drop_in": 1000},
+        "members": [
+            {
+                "source_id": f"SYNTHETIC-E{length}",
+                "name": f"SYNTHETIC-E{length}",
+                "designation": "FB1X1",
+                "grade": "A36",
+                "length_in": length,
+                "qty": qty,
+                "unit_weight_plf": 3.4,
+            }
+            for length, qty in ((5, 2), (4, 2), (3, 4))
+        ],
+        "stock": [
+            {
+                "stock_id": "SYNTHETIC-STK-10",
+                "designation": "FB1X1",
+                "grade": "A36",
+                "length_in": 10,
+                "unlimited": True,
+            }
+        ],
+    }
+    result = cutlist.run_job(job)
+    assert result["outcome"] == "ready"
+    assert result["bars_used"] == 3
+    assert result["verification"]["status"] == "verified"
+    assert result["metrics"]["utilization_pct"]["value"] == 100.0
+
+
+def test_exact_search_never_replaces_with_a_worse_solution():
+    # The portfolio already finds the optimal single-length answer here; the
+    # exact refinement must keep it (same purchase, same cost).
+    result = cutlist.run_job(base_job())
+    assert result["purchase_summary"][0]["stock_id"] == "SYNTHETIC-STK-40"
+    assert result["total_material_cost"] == 7488.0
+
+
+def test_large_groups_fall_back_to_portfolio_deterministically():
+    job = base_job()
+    job["members"] = [
+        {
+            "source_id": f"SYNTHETIC-L{index}",
+            "name": f"SYNTHETIC-L{index}",
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_in": 100 + index,
+            "qty": 2,
+        }
+        for index in range(10)
+    ]
+    first = cutlist.run_job(deepcopy(job))
+    second = cutlist.run_job(deepcopy(job))
+    assert first["outcome"] == "ready"
+    assert sha256_bytes(canonical_json_bytes(first)) == sha256_bytes(
+        canonical_json_bytes(second)
+    )
+
+
+def test_without_cost_basis_exact_search_minimizes_purchased_length():
+    # With no prices, the objective is purchased length: the exact search
+    # finds the 230 ft mixed plan (3 x 50 ft pairing 342+150, one 40 ft for
+    # the last 342, one 40 ft for three 150s) that the greedy misses.
+    job = base_job()
+    for stock in job["stock"]:
+        del stock["cost_per_ft"]
+    result = cutlist.run_job(job)
+    assert result["outcome"] == "ready"
+    assert result["total_stock_length_ft"] == 230.0
+    assert result["bars_used"] == 5
+    assert result["verification"]["status"] == "verified"

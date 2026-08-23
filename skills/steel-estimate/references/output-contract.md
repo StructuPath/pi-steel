@@ -12,6 +12,9 @@ before using any artifact.
 | `normalized-bom.json` | Typed BOM and calculated weight projection | Always |
 | `nest-result.json` | Placements, verification, utilization, and unplaced parts | Valid input contains plate parts |
 | `rfq-nesting.json` | Versioned nesting lineage for RFQ compilation | A nest was attempted |
+| `cutlist-result.json` | Bar plans, verification, purchase summary, drops, and unplaced members | Valid input contains member items with designation, length, and grade |
+| `rfq-linear.json` | Versioned linear-stock lineage for RFQ compilation | A cut-list was attempted |
+| `cutting_list.csv` | Verified per-bar cut sequence (`geometry_verified`) | Run outcome is `ready` and the cut-list is fully placed and verified |
 | `inventory-consumption.json` | Confirmed on-hand sheets consumed and corresponding RFQ demand reduction | Eligible on-hand inventory was consumed |
 | `qa-report.json` | Findings, approximations, gate decisions, and recalculation status | Always |
 | `run-manifest.json` | Input/configuration hashes and artifact hashes/readiness | Always |
@@ -32,8 +35,11 @@ verified exact geometry.
 - `dependency_missing`: required rendering support is absent and no workbook
   exists.
 
-Unplaced parts use `blocked` with package status `nested_partial`; their nest
-diagnostics remain available. A validation failure stops before nesting.
+Unplaced plate parts use `blocked` with package status `nested_partial`;
+members longer than every available stock length use `blocked` with package
+status `cutlist_partial`. Their nest and cut-list diagnostics remain
+available. A validation failure stops before nesting and cut-list
+optimization.
 
 ## Determinism and lineage
 
