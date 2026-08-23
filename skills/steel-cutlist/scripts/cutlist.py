@@ -352,7 +352,16 @@ def normalize_job(job):
                     "End trim consumes the entire stock length.",
                 )
             )
-        unlimited = bool(stock.get("unlimited", False))
+        unlimited = stock.get("unlimited", False)
+        if not isinstance(unlimited, bool):
+            findings.append(
+                _validation_finding(
+                    "invalid_unlimited_flag",
+                    f"{path}.unlimited",
+                    "Unlimited must be a JSON boolean.",
+                )
+            )
+            unlimited = False
         if unlimited and stock_kind == "on_hand":
             findings.append(
                 _validation_finding(
@@ -403,6 +412,7 @@ def normalize_job(job):
             + content_hash(
                 {
                     "name": stock.get("name", "Bar"),
+                    "stock_kind": stock_kind,
                     "designation": designation,
                     "grade": grade,
                     "length_in": length,

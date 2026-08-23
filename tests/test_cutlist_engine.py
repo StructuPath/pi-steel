@@ -495,3 +495,39 @@ def test_invalid_stock_kind_is_an_error():
         for finding in result["validation_findings"]
     )
     assert result["outcome"] == "blocked"
+
+
+def test_string_unlimited_flag_is_rejected_not_coerced():
+    job = base_job()
+    job["stock"][0]["unlimited"] = "false"
+    result = cutlist.run_job(job)
+    assert any(
+        finding["code"] == "invalid_unlimited_flag"
+        for finding in result["validation_findings"]
+    )
+    assert result["outcome"] == "blocked"
+
+
+def test_anonymous_on_hand_and_purchasable_rows_get_distinct_ids():
+    job = base_job()
+    job["stock"] = [
+        {
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_ft": 40,
+            "qty": 5,
+        },
+        {
+            "stock_kind": "on_hand",
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_ft": 40,
+            "qty": 1,
+        },
+    ]
+    result = cutlist.run_job(job)
+    assert not any(
+        finding["code"] == "duplicate_stock_id"
+        for finding in result["validation_findings"]
+    )
+    assert result["outcome"] == "ready"

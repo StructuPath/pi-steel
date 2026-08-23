@@ -71,7 +71,7 @@ machine-specific CAM compatibility.
 
 ### Linear cut-lists
 
-`steel-cutlist` packs member lengths (beams, HSS, angles, pipe) onto
+`steel-cutlist` packs member lengths (beams, channels, angles, HSS, tube, pipe) onto
 purchasable mill lengths with explicit saw kerf and end-trim allowances. A
 deterministic strategy portfolio per designation and grade minimizes unplaced
 members, total stock length, and known cost, and every bar is independently
