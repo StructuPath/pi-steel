@@ -657,3 +657,49 @@ def test_exact_search_finds_optimal_partial_plan_when_stock_is_finite():
     )
     assert cuts == [3, 3, 4]
     assert result["verification"]["status"] == "verified"
+
+
+def test_exact_partial_plan_prefers_stranding_one_large_over_two_small():
+    # Two capacity-10 bars, pieces 8,6,4,4,4. Greedy packs [8] and [6,4],
+    # stranding two 4s; the optimum packs [6,4] and [4,4], stranding only
+    # the 8. (CodeRabbit review case on PR #7.)
+    job = {
+        "job_name": "SYNTHETIC-EXACT-PARTIAL-2",
+        "project_id": "SYNTHETIC-PRJ",
+        "revision_id": "SYNTHETIC-REV",
+        "unit_system": "imperial",
+        "settings": {"kerf_in": 0, "end_trim_in": 0, "min_drop_in": 1000},
+        "members": [
+            {
+                "source_id": f"SYNTHETIC-Q{length}",
+                "name": f"SYNTHETIC-Q{length}",
+                "designation": "FB1X1",
+                "grade": "A36",
+                "length_in": length,
+                "qty": qty,
+                "unit_weight_plf": 3.4,
+            }
+            for length, qty in ((8, 1), (6, 1), (4, 3))
+        ],
+        "stock": [
+            {
+                "stock_id": "SYNTHETIC-STK-TWO",
+                "designation": "FB1X1",
+                "grade": "A36",
+                "length_in": 10,
+                "qty": 2,
+            }
+        ],
+    }
+    result = cutlist.run_job(job)
+    assert result["outcome"] == "blocked"
+    assert sum(row["quantity"] for row in result["unplaced"]) == 1
+    assert result["unplaced"][0]["length_in"] == 8
+    assert result["unplaced"][0]["reason"] == "stock_exhausted"
+    cuts = sorted(
+        cut["length_in"]
+        for report in result["bar_reports"]
+        for cut in report["cuts"]
+    )
+    assert cuts == [4, 4, 4, 6]
+    assert result["verification"]["status"] == "verified"
