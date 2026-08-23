@@ -39,6 +39,8 @@ PACKAGE_STATUSES = frozenset(
         "validated",
         "nested_partial",
         "nest_verified",
+        "cutlist_partial",
+        "cutlist_verified",
         "rfq_draft_review_required",
         "rfq_ready_for_review",
     }

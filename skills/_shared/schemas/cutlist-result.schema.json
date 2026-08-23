@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://structupath.ai/schemas/pi-steel/cutlist-result-1.0.0.json",
+  "title": "pi-steel linear cut-list result",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "algorithm_version",
+    "normalized_input_hash",
+    "estimate_input_hash",
+    "configuration_hash",
+    "outcome",
+    "package_status",
+    "meta",
+    "fit_contract",
+    "bars_used",
+    "metrics",
+    "bar_reports",
+    "purchase_summary",
+    "drops",
+    "unplaced",
+    "validation_findings",
+    "verification",
+    "cost",
+    "rfq_linear"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "algorithm_version": { "type": "string", "minLength": 1 },
+    "normalized_input_hash": { "$ref": "#/$defs/sha256" },
+    "estimate_input_hash": { "$ref": "#/$defs/sha256" },
+    "configuration_hash": { "$ref": "#/$defs/sha256" },
+    "outcome": {
+      "enum": ["ready", "review_required", "blocked", "dependency_missing"]
+    },
+    "package_status": {
+      "enum": ["draft", "cutlist_partial", "cutlist_verified"]
+    },
+    "meta": {
+      "type": "object",
+      "required": [
+        "job_name",
+        "project_id",
+        "revision_id",
+        "kerf_in",
+        "end_trim_in",
+        "min_drop_in",
+        "unit_system"
+      ]
+    },
+    "fit_contract": {
+      "type": "object",
+      "required": [
+        "usable_length",
+        "piece_fits_when",
+        "consumption_per_piece"
+      ]
+    },
+    "bars_used": { "type": "integer", "minimum": 0 },
+    "metrics": {
+      "type": "object",
+      "required": ["utilization_pct", "total_kerf_in"]
+    },
+    "weight_status": { "enum": ["known", "incomplete"] },
+    "cost": {
+      "type": "object",
+      "required": ["status", "total"],
+      "properties": {
+        "status": {
+          "enum": ["known", "not_provided", "incomplete_unplaced"]
+        },
+        "total": { "type": ["number", "null"] }
+      }
+    },
+    "bar_reports": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/barReport" }
+    },
+    "purchase_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "stock_id",
+          "designation",
+          "grade",
+          "bar_length_in",
+          "bars_needed",
+          "total_length_ft",
+          "total_cost"
+        ]
+      }
+    },
+    "drops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "bar_index",
+          "stock_id",
+          "designation",
+          "grade",
+          "length_in",
+          "status"
+        ],
+        "properties": {
+          "status": { "const": "candidate_unverified" }
+        }
+      }
+    },
+    "unplaced": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "label",
+          "designation",
+          "grade",
+          "length_in",
+          "quantity",
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "enum": ["no_compatible_stock_fit", "stock_exhausted"]
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["status", "findings"],
+      "properties": {
+        "status": { "enum": ["verified", "failed"] }
+      }
+    },
+    "rfq_linear": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "source_cutlist_result_version",
+        "project_id",
+        "revision_id",
+        "estimate_input_hash",
+        "rows"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0.0" },
+        "source_cutlist_result_version": { "const": "1.0.0" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "barReport": {
+      "type": "object",
+      "required": [
+        "index",
+        "stock_id",
+        "designation",
+        "grade",
+        "bar_length_in",
+        "usable_length_in",
+        "end_trim_in",
+        "cuts",
+        "num_cuts",
+        "cut_length_in",
+        "kerf_total_in",
+        "drop_in",
+        "drop_class",
+        "utilization_pct",
+        "bar_cost",
+        "cost_basis"
+      ],
+      "properties": {
+        "drop_class": { "enum": ["reusable_candidate", "offcut"] },
+        "cuts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "sequence",
+              "item_id",
+              "source_id",
+              "instance_id",
+              "placement_id",
+              "label",
+              "designation",
+              "grade",
+              "length_in",
+              "weight_lbs",
+              "weight_basis"
+            ],
+            "properties": {
+              "weight_basis": {
+                "enum": ["declared", "aisc_database", "unknown"]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "job_name": "SYNTHETIC-CUTLIST",
+  "project_id": "SYNTH-PRJ",
+  "revision_id": "REV-A",
+  "unit_system": "imperial",
+  "settings": {"kerf_in": 0.125, "end_trim_in": 0.25, "min_drop_in": 24},
+  "members": [
+    {"source_id": "S1", "name": "B1", "designation": "W12X26", "grade": "A992", "length_ft": 28.5, "qty": 4},
+    {"source_id": "S2", "name": "B2", "designation": "W12X26", "grade": "A992", "length_ft": "12'-6", "qty": 6},
+    {"source_id": "S3", "name": "C1", "designation": "HSS6X6X1/2", "grade": "A500B", "length_in": 174, "qty": 3, "unit_weight_plf": 35.24}
+  ],
+  "stock": [
+    {"stock_id": "STK-40", "designation": "W12X26", "grade": "A992", "length_ft": 40, "unlimited": true, "cost_per_ft": 31.2},
+    {"stock_id": "STK-50", "designation": "W12X26", "grade": "A992", "length_ft": 50, "unlimited": true, "cost_per_ft": 39.0},
+    {"stock_id": "STK-HSS", "designation": "HSS6X6X1/2", "grade": "A500B", "length_ft": 48, "qty": 2, "cost_per_bar": 1900}
+  ]
+}
