@@ -246,6 +246,83 @@ def hole_within_outline(hole: dict[str, Any], outline: list[Any]) -> bool:
     return False
 
 
+def _segment_min_distance(p1, p2, p3, p4) -> float:
+    """Minimum distance between two closed segments."""
+    if _segments_touch(p1, p2, p3, p4):
+        return 0.0
+    return min(
+        _point_segment_distance(p1, p3, p4),
+        _point_segment_distance(p2, p3, p4),
+        _point_segment_distance(p3, p1, p2),
+        _point_segment_distance(p4, p1, p2),
+    )
+
+
+def _polygon_edges(outline: list[Any]) -> list[tuple[Any, Any]]:
+    count = len(outline)
+    return [
+        (outline[index], outline[(index + 1) % count]) for index in range(count)
+    ]
+
+
+def rect_outline(width: float, height: float) -> list[list[float]]:
+    """The four-corner polygon of an axis-aligned rectangle at the origin."""
+    return [[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]]
+
+
+def polygons_overlap(first: list[Any], second: list[Any]) -> bool:
+    """Whether two simple polygons share boundary or interior points."""
+    if any(point_in_polygon(point, second) for point in first):
+        return True
+    if any(point_in_polygon(point, first) for point in second):
+        return True
+    return any(
+        _segments_touch(*edge_a, *edge_b)
+        for edge_a in _polygon_edges(first)
+        for edge_b in _polygon_edges(second)
+    )
+
+
+def polygon_min_distance(first: list[Any], second: list[Any]) -> float:
+    """Exact minimum distance between two simple polygons; zero on contact.
+
+    Uses a bounding-box early exit per edge pair so dense outlines stay
+    affordable inside pairwise plate verification.
+    """
+    if polygons_overlap(first, second):
+        return 0.0
+    minimum = math.inf
+    for edge_a in _polygon_edges(first):
+        (ax1, ay1), (ax2, ay2) = edge_a
+        for edge_b in _polygon_edges(second):
+            (bx1, by1), (bx2, by2) = edge_b
+            if (
+                min(ax1, ax2) - minimum > max(bx1, bx2)
+                or min(bx1, bx2) - minimum > max(ax1, ax2)
+                or min(ay1, ay2) - minimum > max(by1, by2)
+                or min(by1, by2) - minimum > max(ay1, ay2)
+            ):
+                continue
+            distance = _segment_min_distance(*edge_a, *edge_b)
+            if distance < minimum:
+                minimum = distance
+                if minimum == 0.0:
+                    return 0.0
+    return minimum
+
+
+def polygon_within_rect(
+    outline: list[Any], width: float, height: float
+) -> bool:
+    """Whether every vertex lies inside the axis-aligned 0..width x 0..height box."""
+    epsilon = 1e-9
+    return all(
+        -epsilon <= point[0] <= width + epsilon
+        and -epsilon <= point[1] <= height + epsilon
+        for point in outline
+    )
+
+
 def gross_area(geometry: dict[str, Any]) -> float:
     if geometry.get("shape") == "irregular":
         outline = geometry.get("outline")

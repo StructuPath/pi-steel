@@ -379,3 +379,41 @@ def test_placement_outline_schema_rejects_degenerate_vertex_lists():
     assert validator.is_valid({"outline": [[0, 0], [1, 0], [1, 1]]})
     assert not validator.is_valid({"outline": [[0, 0]]})
     assert not validator.is_valid({"outline": [[0, 0], [1, 0]]})
+
+
+def test_polygon_distance_primitives():
+    from pi_steel.geometry_verify import (
+        polygon_min_distance,
+        polygon_within_rect,
+        polygons_overlap,
+        rect_outline,
+    )
+
+    unit = rect_outline(2, 2)
+    apart = [[5, 0], [7, 0], [7, 2], [5, 2]]
+    touching = [[2, 0], [4, 0], [4, 2], [2, 2]]
+    overlapping = [[1, 1], [3, 1], [3, 3], [1, 3]]
+    nested = [[0.5, 0.5], [1.5, 0.5], [1.5, 1.5], [0.5, 1.5]]
+
+    assert not polygons_overlap(unit, apart)
+    assert polygons_overlap(unit, touching)
+    assert polygons_overlap(unit, overlapping)
+    assert polygons_overlap(unit, nested)
+
+    assert polygon_min_distance(unit, apart) == 3.0
+    assert polygon_min_distance(unit, touching) == 0.0
+    assert polygon_min_distance(unit, overlapping) == 0.0
+    assert polygon_min_distance(unit, nested) == 0.0
+    # Diagonal separation: closest corners are (2,2) and (4,4).
+    diagonal = [[4, 4], [6, 4], [6, 6], [4, 6]]
+    import math
+
+    assert abs(polygon_min_distance(unit, diagonal) - math.hypot(2, 2)) < 1e-9
+
+    # An L-shape and a small square nested near (not into) its notch.
+    near_notch = [[4, 4], [7, 4], [7, 5], [4, 5]]
+    assert not polygons_overlap(L_SHAPE, near_notch)
+    assert polygon_min_distance(L_SHAPE, near_notch) == 1.0
+
+    assert polygon_within_rect(L_SHAPE, 8, 6)
+    assert not polygon_within_rect(L_SHAPE, 7, 6)
