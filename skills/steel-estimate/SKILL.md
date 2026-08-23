@@ -1,6 +1,6 @@
 ---
 name: steel-estimate
-description: "Build a deterministic, review-gated steel estimate package from canonical estimate JSON. Use when a complete takeoff-to-nest-to-draft-RFQ workflow is needed with validation, lineage, QA, and isolated run artifacts."
+description: "Build a deterministic, review-gated steel estimate package from canonical estimate JSON. Use when a complete takeoff-to-nest-to-cutlist-to-draft-RFQ workflow is needed with validation, lineage, QA, and isolated run artifacts."
 ---
 
 # Steel Estimate Package
@@ -33,13 +33,20 @@ calculations.
 2. Build the typed BOM projection without converting exclusions or allowances
    into vendor quantities.
 3. Nest plate parts only within compatible stock groups.
-4. Verify placements and retain diagnostic nest artifacts.
-5. Compile a draft RFQ only when validation, placement, and company-profile
-   gates pass.
-6. Publish an isolated run manifest and QA report.
+4. Optimize member items (designation plus length, no plate geometry) onto
+   configurable mill lengths (`--mill-lengths-ft`, default `40,50,60`) with
+   the deterministic cut-list engine; settings: `--cutlist-kerf-in`,
+   `--end-trim-in`, `--min-drop-in`.
+5. Verify placements and cut plans; retain diagnostic nest and cut-list
+   artifacts (`cutlist-result.json`, `rfq-linear.json`, and a verified
+   `cutting_list.csv` on ready runs).
+6. Compile a draft RFQ — including the linear stock reference table — only
+   when validation, placement, and company-profile gates pass.
+7. Publish an isolated run manifest and QA report.
 
-Validation failures, unplaced parts, invalid company data, failed nest
-verification, or required rendering dependencies block workbook generation.
+Validation failures, unplaced parts, members longer than every configured mill
+length, invalid company data, failed nest or cut-list verification, or
+required rendering dependencies block workbook generation.
 Complete bounding-box nests for irregular geometry may produce a workbook, but
 the run and workbook remain explicitly review-required. Reference DXF is never
 burn-ready DXF.

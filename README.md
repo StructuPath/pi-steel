@@ -6,8 +6,8 @@
 [![Pi package](https://img.shields.io/badge/Pi-package-7c3aed)](https://pi.dev/packages?name=pi-steel)
 
 Structural-steel estimating skills for the [Pi coding agent](https://pi.dev):
-validated takeoffs, plate nesting, guarded DXF output, draft vendor RFQs, and a
-review-gated estimate pipeline.
+validated takeoffs, plate nesting, linear cut-list optimization, guarded DXF
+output, draft vendor RFQs, and a review-gated estimate pipeline.
 
 Built by [StructuPath](https://structupath.ai).
 
@@ -30,6 +30,7 @@ Then ask Pi:
 ```text
 Do a structural-steel takeoff from these drawings and build a validated BOM.
 Nest these rectangular plate parts on 96 × 48 stock.
+Optimize these beam lengths onto 40/50/60 ft mill lengths.
 Prepare a draft RFQ from this estimate.
 ```
 
@@ -44,7 +45,8 @@ npm run doctor
 | Skill | Purpose | Primary outputs |
 | --- | --- | --- |
 | `steel-takeoff` | Validate member designations and calculate BOM weight and tonnage | Validated BOM and findings |
-| `steel-nest` | Lay out plate parts with kerf, gap, and edge-margin controls | Nest results, cut list, reference drawings, and guarded burn DXFs |
+| `steel-nest` | Lay out plate parts with kerf, gap, and edge-margin controls | Nest results, reference drawings, and guarded burn DXFs |
+| `steel-cutlist` | Optimize member lengths onto purchasable mill lengths (1D bar nesting) | Verified cutting lists, purchase summaries, drop candidates, and bar diagrams |
 | `steel-rfq` | Compile estimate data into a reviewable vendor request | Draft `.xlsx` RFQ and semantic workbook record |
 | `steel-estimate` | Orchestrate the complete review-gated workflow | Immutable run directory, QA report, lineage, manifests, nesting, and draft RFQ |
 
@@ -66,6 +68,15 @@ complete and every supported hole remains inside its part. Otherwise, pi-steel
 suppresses burn DXFs for the entire run and leaves clearly labeled estimating
 and reference artifacts for review. It does not emit G-code or claim
 machine-specific CAM compatibility.
+
+### Linear cut-lists
+
+`steel-cutlist` packs member lengths (beams, HSS, angles, pipe) onto
+purchasable mill lengths with explicit saw kerf and end-trim allowances. A
+deterministic strategy portfolio per designation and grade minimizes unplaced
+members, total stock length, and known cost, and every bar is independently
+re-verified before a cutting list is published. Drops are reported as
+candidates for review, never as certified reusable stock.
 
 ### Draft RFQs
 
@@ -89,7 +100,7 @@ completed profile.
 ```text
 estimate input
     ↓
-contract validation → plate nesting → draft RFQ compilation
+contract validation → plate nesting + linear cut-lists → draft RFQ compilation
     ↓
 QA findings + lineage + immutable run manifest
     ↓
@@ -119,6 +130,7 @@ Keep operational inputs and generated artifacts outside the repository. See the
 - [GitHub wiki](https://github.com/StructuPath/pi-steel/wiki)
 - [Public data policy](PUBLIC_DATA_POLICY.md)
 - [Data provenance](DATA_PROVENANCE.md)
+- [Changelog](CHANGELOG.md)
 - [Pi package catalog](https://pi.dev/packages?name=pi-steel)
 - [npm package](https://www.npmjs.com/package/@structupath/pi-steel)
 
@@ -134,7 +146,7 @@ npm run provenance:check # shape-data integrity and recorded decision
 npm run release:check    # complete release gate
 ```
 
-The current package version is `0.2.3`. `release:check` verifies the test,
+The current package version is `0.3.0`. `release:check` verifies the test,
 privacy, package-content, shape-data integrity, ownership, license, and
 redistribution contracts before publication.
 

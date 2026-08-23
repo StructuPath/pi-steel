@@ -1,6 +1,6 @@
 ---
 name: steel-nest
-description: "Nest steel parts onto compatible stock plates and estimate material — the plate-layout / cutting step that CAM software does. Use this skill whenever someone mentions nesting, plate layout, plate optimization, cut list, cutting plan, yield, remnant candidates, how many sheets/plates a job needs, how much plate to buy, or laying parts out on a sheet. Produces a verified result, packing utilization, net material yield, guarded layouts, and optional cost totals only when an explicit basis exists."
+description: "Nest steel parts onto compatible stock plates and estimate material — the plate-layout / cutting step that CAM software does. Use this skill whenever someone mentions nesting, plate layout, plate optimization, sheet cut plans, yield, remnant candidates, how many sheets/plates a job needs, how much plate to buy, or laying parts out on a sheet. For long products bought by length (beams, HSS, angle, pipe) use steel-cutlist instead. Produces a verified result, packing utilization, net material yield, guarded layouts, and optional cost totals only when an explicit basis exists."
 ---
 
 # Steel Plate Nesting & Estimate
