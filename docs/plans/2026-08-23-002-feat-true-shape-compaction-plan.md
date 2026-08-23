@@ -88,11 +88,21 @@ keeps the original bounding-box layout.
 Deterministic left-then-down sliding, one plate at a time:
 
 1. Order placements by (x, y, placement_id).
-2. For each placement, binary-search the largest leftward slide (then
-   downward) such that its profile keeps `kerf + gap` clearance from every
-   already-fixed profile and the usable boundary. Fixed step resolution
-   (1/32 in) bounds the search deterministically.
+2. For each placement, slide leftward (then downward) by scanning fixed
+   1/32 in steps from the current position and stopping one step before the
+   first offset where the profile violates `kerf + gap` clearance against
+   any already-fixed profile or the usable boundary. Clearance along a
+   slide is NOT monotonic for concave profiles (a notch can make an offset
+   clear, then blocked, then clear again), so binary search is unsound
+   here; the slide is a continuous motion, and the first blocking step is
+   the physical stop. Step count is bounded by plate size over resolution,
+   keeping the pass deterministic.
 3. Repeat the sweep until a pass moves nothing (bounded iteration count).
+
+U2's fixtures must include a concave alternating-clearance case — a
+profile whose slide path is clear, blocked by a notch neighbor, then clear
+again — proving the scan stops at the first contact rather than tunneling
+to a later clear interval.
 
 Only plates where every irregular part carries a validated outline are
 eligible; mixed plates with outline-less irregular parts keep the
