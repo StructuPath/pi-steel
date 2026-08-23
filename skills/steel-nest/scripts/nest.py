@@ -500,20 +500,24 @@ def normalize_job(job):
                 )
             )
         explicit_source = part.get("source_id")
+        fallback_identity = {
+            key: part.get(key)
+            for key in (
+                "name",
+                "material",
+                "grade",
+                "thickness",
+                "width",
+                "height",
+                "shape",
+            )
+        }
+        # Only outline-bearing parts add the key: existing fallback identities
+        # must stay byte-stable for parts without one.
+        if part.get("outline") is not None:
+            fallback_identity["outline"] = part["outline"]
         source_id = explicit_source or fallback_source_id(
-            revision_id,
-            {
-                key: part.get(key)
-                for key in (
-                    "name",
-                    "material",
-                    "grade",
-                    "thickness",
-                    "width",
-                    "height",
-                    "shape",
-                )
-            },
+            revision_id, fallback_identity
         )
         item_id = part.get("item_id") or item_id_for(
             project_id, revision_id, source_id

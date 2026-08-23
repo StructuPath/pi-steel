@@ -278,3 +278,104 @@ def test_pipeline_carries_outline_through_nest(tmp_path):
         if placement["outline"]
     ]
     assert outlines
+
+
+def test_self_touching_rings_are_rejected():
+    # Reused boundary via a repeated vertex (CodeRabbit review case).
+    reused = [[0, 0], [4, 0], [4, 4], [0, 4], [0, 0], [2, 0]]
+    assert not polygon_is_simple(reused)
+    # A non-adjacent edge endpoint touching another edge, without any
+    # repeated vertex: the (6,4)->(3,0) edge lands on the bottom edge.
+    t_touch = [[0, 0], [6, 0], [6, 4], [3, 0], [0, 4]]
+    assert not polygon_is_simple(t_touch)
+    # Concave but genuinely simple rings still pass.
+    concave = [[0, 0], [4, 0], [2, 2], [4, 4], [0, 4]]
+    assert polygon_is_simple(concave)
+
+
+def test_distinct_outlines_get_distinct_fallback_identities():
+    import pi_steel.parsing as parsing
+
+    mirrored = [[0, 0], [8, 0], [8, 6], [5, 6], [5, 3], [0, 3]]
+    legacy = {
+        "material": "carbon_steel",
+        "grade": "A36",
+        "unit_system": "imperial",
+        "settings": {"thickness_in": 0.5},
+        "stock": [{"width": 20, "height": 10, "qty": 2}],
+        "parts": [
+            {
+                "name": "GUSSET",
+                "width": 8,
+                "height": 6,
+                "qty": 1,
+                "shape": "irregular",
+                "outline": deepcopy(L_SHAPE),
+            },
+            {
+                "name": "GUSSET",
+                "width": 8,
+                "height": 6,
+                "qty": 1,
+                "shape": "irregular",
+                "outline": mirrored,
+            },
+        ],
+    }
+    package = parsing.adapt_legacy_nest(
+        legacy, project_id="SYNTHETIC-PRJ", revision_id="SYNTHETIC-REV"
+    )
+    source_ids = [item["source_id"] for item in package["items"]]
+    assert len(set(source_ids)) == 2
+
+    direct = nest.run_job(
+        {
+            "job_name": "SYNTHETIC-DISTINCT",
+            "material": "carbon_steel",
+            "grade": "A36",
+            "unit_system": "imperial",
+            "settings": {"thickness_in": 0.5},
+            "stock": [
+                {
+                    "stock_id": "SYNTHETIC-STOCK-D",
+                    "width": 20,
+                    "height": 10,
+                    "thickness": 0.5,
+                    "qty": 2,
+                }
+            ],
+            "parts": deepcopy(legacy["parts"]),
+        }
+    )
+    assert not any(
+        finding["code"].startswith("duplicate_")
+        for finding in direct["validation_findings"]
+    )
+
+
+def test_placement_outline_schema_rejects_degenerate_vertex_lists():
+    import jsonschema
+
+    schema = json.loads(
+        (SHARED / "schemas" / "nest-result.schema.json").read_text()
+    )
+    validator = jsonschema.Draft202012Validator(
+        {
+            "$schema": schema["$schema"],
+            "$ref": "#/$defs/outlineOnly",
+            "$defs": {
+                "outlineOnly": {
+                    "type": "object",
+                    "properties": {
+                        "outline": schema["$defs"]["placement"]["properties"][
+                            "outline"
+                        ]
+                    },
+                }
+            },
+        }
+    )
+    assert validator.is_valid({"outline": []})
+    assert validator.is_valid({"outline": [[0, 0], [1, 0], [1, 1]]})
+    assert not validator.is_valid({"outline": [[0, 0]]})
+    assert not validator.is_valid({"outline": [[0, 0], [1, 0]]})

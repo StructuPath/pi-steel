@@ -68,25 +68,46 @@ def polygon_area(outline: list[Any]) -> float:
     return abs(total) / 2.0
 
 
+def _orient(a, b, c):
+    value = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    if value > 1e-12:
+        return 1
+    if value < -1e-12:
+        return -1
+    return 0
+
+
 def _segments_properly_intersect(p1, p2, p3, p4) -> bool:
     """Whether open segments p1-p2 and p3-p4 cross (shared endpoints excluded)."""
-
-    def orient(a, b, c):
-        value = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-        if value > 1e-12:
-            return 1
-        if value < -1e-12:
-            return -1
-        return 0
-
-    o1, o2 = orient(p1, p2, p3), orient(p1, p2, p4)
-    o3, o4 = orient(p3, p4, p1), orient(p3, p4, p2)
+    o1, o2 = _orient(p1, p2, p3), _orient(p1, p2, p4)
+    o3, o4 = _orient(p3, p4, p1), _orient(p3, p4, p2)
     return o1 != o2 and o3 != o4 and 0 not in (o1, o2, o3, o4)
 
 
+def _segments_touch(p1, p2, p3, p4) -> bool:
+    """Any contact between closed segments: crossing, touch, or overlap."""
+    o1, o2 = _orient(p1, p2, p3), _orient(p1, p2, p4)
+    o3, o4 = _orient(p3, p4, p1), _orient(p3, p4, p2)
+    if o1 != o2 and o3 != o4:
+        return True
+    return (
+        (o1 == 0 and _point_on_segment(p3, p1, p2))
+        or (o2 == 0 and _point_on_segment(p4, p1, p2))
+        or (o3 == 0 and _point_on_segment(p1, p3, p4))
+        or (o4 == 0 and _point_on_segment(p2, p3, p4))
+    )
+
+
 def polygon_is_simple(outline: list[Any]) -> bool:
-    """Whether non-adjacent edges never cross (a non-self-intersecting ring)."""
+    """Whether the ring never touches itself.
+
+    Rejects repeated vertices (which also covers zero-length edges and
+    spikes) and any contact between non-adjacent edges — proper crossings,
+    endpoint touches, and collinear overlaps alike.
+    """
     count = len(outline)
+    if len({(point[0], point[1]) for point in outline}) != count:
+        return False
     edges = [
         (outline[index], outline[(index + 1) % count]) for index in range(count)
     ]
@@ -94,7 +115,7 @@ def polygon_is_simple(outline: list[Any]) -> bool:
         for second in range(first + 1, count):
             if second == first + 1 or (first == 0 and second == count - 1):
                 continue
-            if _segments_properly_intersect(*edges[first], *edges[second]):
+            if _segments_touch(*edges[first], *edges[second]):
                 return False
     return True
 

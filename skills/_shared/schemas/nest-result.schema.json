@@ -286,7 +286,8 @@
             "items": { "type": "number" },
             "minItems": 2,
             "maxItems": 2
-          }
+          },
+          "oneOf": [{ "maxItems": 0 }, { "minItems": 3 }]
         },
         "base_area": { "type": "number", "exclusiveMinimum": 0 },
         "holes_area": { "type": "number", "minimum": 0 },
