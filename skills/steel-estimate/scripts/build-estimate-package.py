@@ -7,6 +7,7 @@ import argparse
 import copy
 import importlib.util
 import json
+import math
 import os
 import re
 import sys
@@ -204,10 +205,15 @@ def parse_mill_lengths(raw: str) -> list[float]:
         entry = entry.strip()
         if not entry:
             continue
-        value = float(entry)
-        if value <= 0:
+        try:
+            value = float(entry)
+        except ValueError as exc:
             raise PipelineInputError(
-                "--mill-lengths-ft entries must be greater than zero"
+                f"--mill-lengths-ft entry {entry!r} is not a number"
+            ) from exc
+        if not math.isfinite(value) or value <= 0:
+            raise PipelineInputError(
+                "--mill-lengths-ft entries must be finite and greater than zero"
             )
         lengths.append(value)
     if not lengths:
@@ -232,6 +238,7 @@ def cutlist_job_from_package(
         and not item.get("geometry")
         and item.get("designation")
         and item.get("length_ft") is not None
+        and item.get("grade")
     ]
     if not member_items:
         return None
@@ -512,12 +519,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         raise PipelineInputError("--prepared-date must be an ISO date (YYYY-MM-DD)")
     if not _valid_date(args.issued_date):
         raise PipelineInputError("--issued-date must be an ISO date (YYYY-MM-DD)")
-    try:
-        mill_lengths = parse_mill_lengths(args.mill_lengths_ft)
-    except ValueError as exc:
-        raise PipelineInputError(
-            f"--mill-lengths-ft is invalid: {exc}"
-        ) from exc
+    mill_lengths = parse_mill_lengths(args.mill_lengths_ft)
     input_path = Path(args.input)
     package = json.loads(input_path.read_text(encoding="utf-8"))
     validation = validate_estimate_package(package)
@@ -617,6 +619,25 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
                 )
     cutlist_result = None
     if not validation_blocked:
+        for item in normalized["items"]:
+            if (
+                item["intent"] == "fabricated_part"
+                and not item.get("geometry")
+                and item.get("designation")
+                and item.get("length_ft") is not None
+                and not item.get("grade")
+            ):
+                findings.append(
+                    _finding(
+                        "member_missing_grade_excluded_from_cutlist",
+                        "warning",
+                        "$.items",
+                        (
+                            f"Member {item['item_id']} has no grade and was "
+                            "excluded from cut-list optimization."
+                        ),
+                    )
+                )
         cutlist_job = cutlist_job_from_package(
             normalized,
             estimate_input_hash=validation.input_hash,

@@ -347,3 +347,84 @@ def test_rfq_linear_block_carries_identity_and_rows():
     row = handoff["rows"][0]
     assert row["bars_needed"] == 6
     assert "cutting_plan" in row and "drop_notes" in row
+
+
+def test_negative_quantity_blocks_without_crashing():
+    job = base_job()
+    job["members"][0]["qty"] = -3
+    result = cutlist.run_job(job)
+    assert result["outcome"] == "blocked"
+    assert any(
+        finding["code"] == "invalid_quantity"
+        for finding in result["validation_findings"]
+    )
+    assert result["verification"]["status"] == "not_run"
+
+
+def test_blocked_runs_report_verification_not_run():
+    job = base_job()
+    del job["members"][0]["grade"]
+    job["grade"] = None
+    result = cutlist.run_job(job)
+    assert result["outcome"] == "blocked"
+    assert result["verification"]["status"] == "not_run"
+
+    ready = cutlist.run_job(base_job())
+    assert ready["verification"]["status"] == "verified"
+
+
+def test_rfq_linear_rows_carry_per_group_utilization():
+    job = base_job()
+    job["members"].append(
+        {
+            "source_id": "SYNTHETIC-M-HSS",
+            "name": "SYNTHETIC-HSS",
+            "designation": "HSS6X6X1/2",
+            "grade": "A500B",
+            "length_in": 200,
+            "qty": 1,
+            "unit_weight_plf": 35.24,
+        }
+    )
+    job["stock"].append(
+        {
+            "stock_id": "SYNTHETIC-STK-HSS",
+            "designation": "HSS6X6X1/2",
+            "grade": "A500B",
+            "length_ft": 40,
+            "unlimited": True,
+        }
+    )
+    result = cutlist.run_job(job)
+    rows = {row["stock_id"]: row for row in result["rfq_linear"]["rows"]}
+    for stock_id, row in rows.items():
+        matching = [
+            report
+            for report in result["bar_reports"]
+            if report["stock_id"] == stock_id
+        ]
+        expected = round(
+            100
+            * sum(report["cut_length_in"] for report in matching)
+            / sum(report["bar_length_in"] for report in matching),
+            1,
+        )
+        assert row["utilization_pct"] == expected
+    assert len({row["utilization_pct"] for row in rows.values()}) > 1
+
+
+def test_cutting_list_preserves_sixteenth_inch_precision():
+    job = base_job()
+    job["members"] = [
+        {
+            "source_id": "SYNTHETIC-M-PRECISE",
+            "name": "SYNTHETIC-PRECISE",
+            "designation": "W12X26",
+            "grade": "A992",
+            "length_in": 342.0625,
+            "qty": 1,
+        }
+    ]
+    result = cutlist.run_job(job)
+    csv_text = cutlist.render_cutting_list_csv(result)
+    assert "342.0625" in csv_text

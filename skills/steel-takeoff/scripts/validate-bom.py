@@ -15,7 +15,7 @@ if str(SHARED_ROOT) not in sys.path:
 from bootstrap import bootstrap_shared  # noqa: E402
 
 bootstrap_shared(__file__)
-from pi_steel.parsing import adapt_legacy_bom_csv  # noqa: E402
+from pi_steel.parsing import adapt_legacy_bom_csv, normalize_designation  # noqa: E402
 from pi_steel.validation import validate_estimate_package  # noqa: E402
 
 
@@ -25,10 +25,6 @@ def load_shapes_db() -> dict[str, dict]:
         return {}
     shapes = json.loads(db_path.read_text(encoding="utf-8"))
     return {shape["designation"]: shape for shape in shapes}
-
-
-def normalize_designation(raw: str) -> str:
-    return raw.upper().replace(" ", "").strip()
 
 
 def grade_warnings(shape_type: str, grade: str) -> list[str]:

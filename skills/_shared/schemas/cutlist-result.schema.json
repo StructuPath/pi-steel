@@ -132,7 +132,7 @@
       "type": "object",
       "required": ["status", "findings"],
       "properties": {
-        "status": { "enum": ["verified", "failed"] }
+        "status": { "enum": ["verified", "failed", "not_run"] }
       }
     },
     "rfq_linear": {

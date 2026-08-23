@@ -452,3 +452,62 @@ def test_member_exceeding_all_mill_lengths_blocks_as_cutlist_partial(tmp_path):
     assert not (run_path / "cutting_list.csv").exists()
     cutlist = load_json(run_path / "cutlist-result.json")
     assert cutlist["unplaced"][0]["reason"] == "no_compatible_stock_fit"
+
+
+def test_member_without_grade_is_excluded_from_cutlist_not_blocked(tmp_path):
+    package = load_package()
+    for item in package["items"]:
+        if item.get("mark") == "W1":
+            del item["grade"]
+    completed, run_path = run_pipeline(
+        tmp_path, package, "SYNTHETIC-PIPELINE-NO-GRADE"
+    )
+    assert completed.returncode == 2, completed.stdout + completed.stderr
+    manifest = load_json(run_path / "run-manifest.json")
+    assert manifest["run_outcome"] == "review_required"
+    assert next(run_path.glob("*.xlsx"), None) is not None
+    qa_report = load_json(run_path / "qa-report.json")
+    assert any(
+        finding["code"] == "member_missing_grade_excluded_from_cutlist"
+        and finding["severity"] == "warning"
+        for finding in qa_report["findings"]
+    )
+    cutlist = load_json(run_path / "cutlist-result.json")
+    marks = {
+        cut["label"]
+        for report in cutlist["bar_reports"]
+        for cut in report["cuts"]
+    }
+    assert "W1" not in marks
+    assert "HSS1" in marks
+
+
+def test_nonfinite_mill_lengths_fail_as_usage_error(tmp_path):
+    input_path = tmp_path / "input.json"
+    input_path.write_text(json.dumps(load_package()), encoding="utf-8")
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            SCRIPT,
+            "--input",
+            input_path,
+            "--out",
+            tmp_path / "published",
+            "--prepared-date",
+            "2026-07-28",
+            "--issued-date",
+            "2026-07-29",
+            "--mill-lengths-ft",
+            "nan",
+            "--no-render",
+            "--no-bake",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        capture_output=True,
+    )
+    assert completed.returncode == 1
+    assert "finite" in completed.stderr

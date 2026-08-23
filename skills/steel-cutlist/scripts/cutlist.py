@@ -39,7 +39,6 @@ latest-run.json pointer. Exit 0 is ready, 2 requires review, and 3 is blocked.
 
 import argparse
 import csv
-import importlib.util
 import io
 import json
 import math
@@ -59,7 +58,9 @@ from pi_steel import (  # noqa: E402
     RunPublisher,
     StageArgumentParser,
     canonical_json_bytes,
+    is_sha256,
     item_id_for,
+    missing_optional_modules,
     outcome_exit_code,
     package_version,
     placement_ids,
@@ -67,27 +68,12 @@ from pi_steel import (  # noqa: E402
     sha256_bytes,
 )
 from pi_steel.contracts import content_hash, fallback_source_id, instance_ids  # noqa: E402
-from pi_steel.parsing import parse_length_ft  # noqa: E402
+from pi_steel.parsing import normalize_designation, parse_length_ft  # noqa: E402
 
 CUTLIST_RESULT_VERSION = "1.0.0"
 CUTLIST_ALGORITHM_VERSION = "portfolio-bfd-v1"
 EPS = 1e-6
 AISC_DATABASE_RELATIVE = Path("steel-takeoff") / "assets" / "aisc-shapes-database.json"
-
-
-def _valid_hash(value):
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
-    )
-
-
-def normalize_designation(value):
-    """Canonical AISC-style designation key: uppercase, no spaces."""
-    if not isinstance(value, str):
-        return ""
-    return value.upper().replace(" ", "")
 
 
 def load_unit_weights():
@@ -232,7 +218,7 @@ def normalize_job(job):
             else:
                 revision_id = "LEGACY-REVISION"
     estimate_input_hash = job.get("estimate_input_hash")
-    if estimate_input_hash is not None and not _valid_hash(estimate_input_hash):
+    if estimate_input_hash is not None and not is_sha256(estimate_input_hash):
         findings.append(
             _validation_finding(
                 "invalid_estimate_input_hash",
@@ -277,6 +263,7 @@ def normalize_job(job):
                     "invalid_quantity", f"{path}.qty", "Quantity must be a positive integer."
                 )
             )
+            quantity = 0
         unit_weight = member.get("unit_weight_plf")
         weight_basis = "declared"
         if unit_weight is not None:
@@ -848,6 +835,11 @@ def _summarize(normalized, used_bars, unplaced, validation_findings, normalized_
         expected_instances.update(
             instance_ids(member["item_id"], member["quantity"])
         )
+    placed_elsewhere = {
+        cut["instance_id"]
+        for report in bar_reports
+        for cut in report["cuts"]
+    }
     for row in unplaced:
         prefix = f"{row['item_id']}:instance:"
         matching = sorted(
@@ -855,23 +847,19 @@ def _summarize(normalized, used_bars, unplaced, validation_findings, normalized_
             for instance in expected_instances
             if instance.startswith(prefix)
         )
-        placed_elsewhere = {
-            cut["instance_id"]
-            for report in bar_reports
-            for cut in report["cuts"]
-        }
         removable = [
             instance for instance in matching if instance not in placed_elsewhere
         ][-row["quantity"]:]
         expected_instances -= set(removable)
 
+    verification_ran = not any(
+        finding["severity"] == "error" for finding in validation_findings
+    )
     verification_findings = (
         verify_cutlist_bars(
             bar_reports, kerf=kerf, expected_instances=expected_instances
         )
-        if not any(
-            finding["severity"] == "error" for finding in validation_findings
-        )
+        if verification_ran
         else []
     )
 
@@ -988,7 +976,11 @@ def _summarize(normalized, used_bars, unplaced, validation_findings, normalized_
         "unplaced": unplaced,
         "validation_findings": validation_findings,
         "verification": {
-            "status": "verified" if not verification_findings else "failed",
+            "status": (
+                "not_run"
+                if not verification_ran
+                else ("verified" if not verification_findings else "failed")
+            ),
             "findings": verification_findings,
         },
     }
@@ -1028,7 +1020,9 @@ def stage_decision(res):
 
 
 def _fmt(value):
-    return f"{value:g}"
+    """Decimal-exact display formatting; never rounds shop-relevant digits."""
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return text or "0"
 
 
 # --------------------------------------------------------------------------
@@ -1044,6 +1038,13 @@ def rfq_linear_block(res):
             if report["stock_id"] == purchase["stock_id"]
         ]
         cuts = sum(report["num_cuts"] for report in matching)
+        group_bar_length = sum(report["bar_length_in"] for report in matching)
+        group_cut_length = sum(report["cut_length_in"] for report in matching)
+        group_utilization = (
+            round(100 * group_cut_length / group_bar_length, 1)
+            if group_bar_length
+            else 0.0
+        )
         drop_candidates = [
             drop
             for drop in res["drops"]
@@ -1061,7 +1062,7 @@ def rfq_linear_block(res):
                 "bar_length_in": purchase["bar_length_in"],
                 "bars_needed": purchase["bars_needed"],
                 "total_length_ft": purchase["total_length_ft"],
-                "utilization_pct": res["metrics"]["utilization_pct"]["value"],
+                "utilization_pct": group_utilization,
                 "cutting_plan": (
                     f"{purchase['bars_needed']} x "
                     f"{_fmt(purchase['bar_length_in'])} in bar(s) - {cuts} cuts"
@@ -1311,11 +1312,7 @@ def render_layout(res, outdir, pdf_name="layout.pdf", png_name="bars.png"):
 
 def missing_render_dependencies():
     """Return optional render modules unavailable to this interpreter."""
-    return [
-        name
-        for name in ("matplotlib", "numpy")
-        if importlib.util.find_spec(name) is None
-    ]
+    return missing_optional_modules(("matplotlib", "numpy"))
 
 
 # --------------------------------------------------------------------------
