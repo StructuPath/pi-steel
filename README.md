@@ -60,8 +60,9 @@ does not invent pricing.
 ### Nesting and DXF safety
 
 `steel-nest` uses MaxRects bin packing for rectangular parts and reports yield,
-scrap, reusable drops, and unplaced material. Irregular parts are estimated by
-bounding box and are always flagged.
+scrap, reusable drops, and unplaced material. Irregular parts may carry a true
+polygon outline for exact areas, weights, hole checks, and drawn profiles; they
+are placed by bounding box and always flagged.
 
 Per-sheet `burn_plate_N.dxf` files are emitted only when the full nest is
 complete and every supported hole remains inside its part. Otherwise, pi-steel
@@ -146,7 +147,7 @@ npm run provenance:check # shape-data integrity and recorded decision
 npm run release:check    # complete release gate
 ```
 
-The current package version is `0.3.1`. `release:check` verifies the test,
+The current package version is `0.4.0`. `release:check` verifies the test,
 privacy, package-content, shape-data integrity, ownership, license, and
 redistribution contracts before publication.
 

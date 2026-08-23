@@ -1,6 +1,6 @@
 {
   "name": "@structupath/pi-steel",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Structural steel estimating for Pi \u2014 validated takeoffs, plate nesting, guarded DXF output, and review-ready RFQ packages.",
   "type": "module",
   "keywords": [

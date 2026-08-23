@@ -138,6 +138,10 @@ def adapt_legacy_nest(
             key: part.get(key)
             for key in ("name", "width", "height", "shape", "area")
         }
+        # Only outline-bearing parts add the key: existing fallback identities
+        # must stay byte-stable for parts without one.
+        if part.get("outline") is not None:
+            identity["outline"] = part["outline"]
         source_id = explicit_source or fallback_source_id(revision_id, identity)
         geometry = {
             "shape": part.get("shape", "rect"),
@@ -167,6 +171,8 @@ def adapt_legacy_nest(
         }
         if "area" in part:
             geometry["area"] = part["area"]
+        if "outline" in part:
+            geometry["outline"] = part["outline"]
         item = {
             "intent": "fabricated_part",
             "source_id": source_id,

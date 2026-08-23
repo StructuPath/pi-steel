@@ -226,7 +226,13 @@
       "properties": {
         "value": { "type": "number", "minimum": 0, "maximum": 100 },
         "approximation": {
-          "enum": ["exact", "bounding_box", "declared_area", "bounding_box_estimate"]
+          "enum": [
+            "exact",
+            "bounding_box",
+            "declared_area",
+            "bounding_box_estimate",
+            "outline_exact"
+          ]
         }
       },
       "additionalProperties": false
@@ -273,6 +279,16 @@
         "ow": { "type": "number", "exclusiveMinimum": 0 },
         "oh": { "type": "number", "exclusiveMinimum": 0 },
         "holes": { "type": "array", "items": { "type": "object" } },
+        "outline": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "oneOf": [{ "maxItems": 0 }, { "minItems": 3 }]
+        },
         "base_area": { "type": "number", "exclusiveMinimum": 0 },
         "holes_area": { "type": "number", "minimum": 0 },
         "material": { "type": "string" },

@@ -110,6 +110,16 @@
         "height": { "type": "number", "exclusiveMinimum": 0 },
         "thickness": { "type": "number", "exclusiveMinimum": 0 },
         "area": { "type": "number", "exclusiveMinimum": 0 },
+        "outline": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 3
+        },
         "holes": {
           "type": "array",
           "items": { "$ref": "#/$defs/hole" },

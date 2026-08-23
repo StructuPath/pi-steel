@@ -4,6 +4,20 @@ All notable changes to `@structupath/pi-steel` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-23
+
+### Added
+
+- True polygon outlines for irregular plate parts: an optional
+  `geometry.outline` vertex list gives exact shoelace areas and weights
+  (`outline_exact`, replacing hand-declared estimates), exact
+  hole-inside-profile verification (a hole in a notch now blocks instead
+  of passing the bounding-box check), and real profile rendering in
+  layouts and reference DXFs. Outlines are validated as simple polygons
+  whose bounding box matches the declared part size, at the canonical
+  contract and in the direct nesting engine alike. Placement remains by
+  bounding box and burn-DXF suppression for irregular parts is unchanged.
+
 ## [0.3.1] - 2026-08-23
 
 ### Added
