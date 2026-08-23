@@ -1,6 +1,6 @@
 ---
 name: steel-rfq
-description: "Compile a deterministic draft steel RFQ workbook from a validated canonical estimate package or an exact-header legacy workbook. Use for material quote lists, RFQ spreadsheets, or versioned nesting references. Produces artifacts only; it never sends, awards, or authorizes purchasing."
+description: "Compile a deterministic draft steel RFQ workbook from a validated canonical estimate package or an exact-header legacy workbook. Use for material quote lists, RFQ spreadsheets, or versioned nesting and cut-list references. Produces artifacts only; it never sends, awards, or authorizes purchasing."
 ---
 
 # Steel RFQ Compiler
@@ -19,6 +19,7 @@ purchase. Every workbook and manifest records `DRAFT — NOT SENT OR AWARDED`.
 - A runtime company profile with company name, city/state, and an approved,
   hash-bound terms template.
 - Optional versioned nesting handoff `1.0.0`.
+- Optional versioned linear cut-list handoff `1.0.0` (from `steel-cutlist`).
 
 Resolve the company profile from `PI_STEEL_CONFIG`, project-local ignored
 `.pi-steel/company-profile.json`, then the platform user-config directory.
@@ -51,6 +52,7 @@ The compiler owns:
   alternating row fills.
 - Exact total formulas covering the deterministic material range.
 - Versioned nesting/remnant reference rows with visible reference-only labels.
+- Versioned linear stock / cut-list reference rows when a linear handoff is supplied.
 - Approved terms content and approval lineage.
 - Landscape print setup, one-page width, repeated row-8 headers, and stable
   project-derived filename.
@@ -64,6 +66,7 @@ branding.
 python3 scripts/generate-rfq.py \
   --input <estimate-package.json-or-exact-legacy.xlsx> \
   --nest <optional-rfq_nesting.json> \
+  --linear <optional-rfq_linear.json> \
   --issued-date <YYYY-MM-DD> \
   --project-location "Example City, ST" \
   --out <publication-root>

@@ -15,6 +15,13 @@ from .contracts import (
 )
 
 
+def normalize_designation(value: Any) -> str:
+    """Canonical AISC-style designation key: uppercase, no spaces."""
+    if not isinstance(value, str):
+        return ""
+    return value.upper().replace(" ", "").strip()
+
+
 def parse_length_ft(raw: str) -> float:
     value = raw.strip()
     if "'" not in value:

@@ -47,8 +47,12 @@ RECALC_SPEC.loader.exec_module(recalc)
 
 RFQ_COMPILER_VERSION = "1.0.0"
 NEST_HANDOFF_VERSION = "1.0.0"
+LINEAR_HANDOFF_VERSION = "1.0.0"
 NEST_RESULT_SCHEMA_PATH = (
     SHARED_ROOT / "schemas" / "nest-result.schema.json"
+)
+CUTLIST_RESULT_SCHEMA_PATH = (
+    SHARED_ROOT / "schemas" / "cutlist-result.schema.json"
 )
 HEADERS = [
     "Item",
@@ -547,6 +551,66 @@ def validate_nest_handoff(
     return findings
 
 
+def _linear_handoff_validator() -> jsonschema.Draft202012Validator:
+    schema = json.loads(CUTLIST_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    handoff_schema = {
+        "$schema": schema["$schema"],
+        "$ref": "#/$defs/linearHandoff",
+        "$defs": {"linearHandoff": schema["properties"]["rfq_linear"]},
+    }
+    return jsonschema.Draft202012Validator(handoff_schema)
+
+
+def validate_linear_handoff(
+    value: dict[str, Any] | None,
+    *,
+    expected: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    if value is None:
+        return []
+    if not isinstance(value, dict):
+        return [
+            {
+                "code": "invalid_linear_handoff",
+                "severity": "error",
+                "path": "$",
+                "message": "Linear cut-list handoff must be a JSON object.",
+            }
+        ]
+    findings: list[dict[str, str]] = []
+    for error in sorted(
+        _linear_handoff_validator().iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    ):
+        findings.append(
+            {
+                "code": "invalid_linear_handoff_contract",
+                "severity": "error",
+                "path": _json_path(error.absolute_path),
+                "message": error.message,
+            }
+        )
+    if expected is not None:
+        for handoff_field, expected_field in (
+            ("project_id", "project_id"),
+            ("revision_id", "revision_id"),
+            ("estimate_input_hash", "input_hash"),
+        ):
+            if value.get(handoff_field) != expected.get(expected_field):
+                findings.append(
+                    {
+                        "code": "stale_linear_handoff",
+                        "severity": "error",
+                        "path": f"$.{handoff_field}",
+                        "message": (
+                            f"Linear cut-list handoff {handoff_field} does not "
+                            "match the current estimate package."
+                        ),
+                    }
+                )
+    return findings
+
+
 def _color(value):
     if value is None:
         return None
@@ -660,6 +724,7 @@ def compile_workbook(
     output_directory: str | Path,
     profile_source: str,
     bake: bool,
+    linear_handoff: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     profile_findings = validate_company_profile(
         profile, profile.get("_profile_path")
@@ -674,6 +739,12 @@ def compile_workbook(
         raise RfqInputError(
             "nest handoff blocked: "
             + "; ".join(finding["message"] for finding in nest_findings)
+        )
+    linear_findings = validate_linear_handoff(linear_handoff, expected=normalized)
+    if linear_findings:
+        raise RfqInputError(
+            "linear handoff blocked: "
+            + "; ".join(finding["message"] for finding in linear_findings)
         )
 
     workbook = Workbook()
@@ -887,7 +958,56 @@ def compile_workbook(
             cell.alignment = Alignment(vertical="top", wrap_text=True)
         nest_row += 1
 
-    review_header_row = nest_row + 1
+    linear_header_row = None
+    section_end_row = nest_row
+    if linear_handoff and linear_handoff.get("rows"):
+        linear_header_row = nest_row + 1
+        sheet.merge_cells(
+            start_row=linear_header_row,
+            start_column=1,
+            end_row=linear_header_row,
+            end_column=14,
+        )
+        sheet.cell(
+            linear_header_row,
+            1,
+            "LINEAR STOCK / CUT-LIST REFERENCE (For Fabricator Review)",
+        )
+        sheet.cell(linear_header_row, 1).font = Font(
+            name="Arial", bold=True, color=dark_blue
+        )
+        linear_columns_row = linear_header_row + 1
+        linear_headers = [
+            "Designation",
+            "Grade",
+            "Bar Length (in)",
+            "Bars Needed",
+            "Cutting Plan",
+            "Drop Notes",
+        ]
+        for column, header in enumerate(linear_headers, start=1):
+            cell = sheet.cell(linear_columns_row, column, header)
+            cell.fill = PatternFill("solid", fgColor=medium_blue)
+            cell.font = Font(name="Arial", bold=True, color=white)
+            cell.border = border
+        linear_row = linear_columns_row + 1
+        for entry in linear_handoff["rows"]:
+            values = [
+                entry.get("designation"),
+                entry.get("grade"),
+                entry.get("bar_length_in"),
+                entry.get("bars_needed"),
+                entry.get("cutting_plan"),
+                entry.get("drop_notes"),
+            ]
+            for column, value in enumerate(values, start=1):
+                cell = sheet.cell(linear_row, column, value)
+                cell.border = border
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+            linear_row += 1
+        section_end_row = linear_row
+
+    review_header_row = section_end_row + 1
     sheet.merge_cells(
         start_row=review_header_row,
         start_column=1,
@@ -1002,6 +1122,7 @@ def compile_workbook(
             "last_material_row": last_material_row,
             "total_row": total_row,
             "nest_header_row": nest_header_row,
+            "linear_header_row": linear_header_row,
             "review_header_row": review_header_row,
             "terms_header_row": terms_header_row,
         },
@@ -1084,7 +1205,26 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
                 "message": str(exc),
             }
         ]
-    findings = input_findings + profile_findings + nest_findings
+    try:
+        linear_handoff = (
+            json.loads(Path(args.linear).read_text(encoding="utf-8"))
+            if args.linear
+            else None
+        )
+        linear_findings = validate_linear_handoff(
+            linear_handoff,
+            expected=normalized,
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        linear_handoff = None
+        linear_findings = [
+            {
+                "code": "invalid_linear_handoff",
+                "severity": "error",
+                "message": str(exc),
+            }
+        ]
+    findings = input_findings + profile_findings + nest_findings + linear_findings
     blockers = [finding for finding in findings if finding["severity"] == "error"]
     review_reasons = list(normalized["warnings"])
     if any(
@@ -1112,6 +1252,7 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
                 "project_location": args.project_location,
                 "profile_hash": profile_semantic_hash(profile),
                 "nest_handoff": nest_handoff,
+                "linear_handoff": linear_handoff,
                 "bake_requested": not args.no_bake,
             }
         )
@@ -1138,6 +1279,7 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
             "estimate_package": normalized["input_version"],
             "rfq_workbook": RFQ_COMPILER_VERSION,
             "rfq_nesting": NEST_HANDOFF_VERSION,
+            "rfq_linear": LINEAR_HANDOFF_VERSION,
         },
         tool_versions={
             "pi_steel": package_version(__file__),
@@ -1154,6 +1296,7 @@ def publish_rfq_run(args) -> tuple[dict[str, Any], Path]:
                 normalized,
                 profile,
                 nest_handoff=nest_handoff,
+                linear_handoff=linear_handoff,
                 issued_date=args.issued_date,
                 project_location=args.project_location,
                 output_directory=publisher.staging_path,
@@ -1188,6 +1331,7 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--input", required=True)
     parser.add_argument("--nest")
+    parser.add_argument("--linear")
     parser.add_argument("--out", default="outputs")
     parser.add_argument("--issued-date", required=True)
     parser.add_argument("--project-location", default="")

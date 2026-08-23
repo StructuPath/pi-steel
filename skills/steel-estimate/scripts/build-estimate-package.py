@@ -7,6 +7,7 @@ import argparse
 import copy
 import importlib.util
 import json
+import math
 import os
 import re
 import sys
@@ -34,7 +35,9 @@ from pi_steel import (  # noqa: E402
     sha256_bytes,
 )
 from pi_steel.contracts import ESTIMATE_PACKAGE_VERSION  # noqa: E402
+from pi_steel.parsing import normalize_designation  # noqa: E402
 from pi_steel.validation import (  # noqa: E402
+    eligible_on_hand_linear_stock,
     eligible_on_hand_stock,
     validate_estimate_package,
 )
@@ -59,6 +62,10 @@ nest_engine = _load_module(
 rfq_compiler = _load_module(
     "pi_steel_estimate_rfq",
     SKILLS_ROOT / "steel-rfq" / "scripts" / "generate-rfq.py",
+)
+cutlist_engine = _load_module(
+    "pi_steel_estimate_cutlist",
+    SKILLS_ROOT / "steel-cutlist" / "scripts" / "cutlist.py",
 )
 
 
@@ -137,6 +144,8 @@ def nest_job_from_package(
         return None
     stock_rows = []
     for index, stock in enumerate(package.get("stock", []), start=1):
+        if stock.get("stock_form") == "linear":
+            continue
         if (
             stock["stock_kind"] == "on_hand"
             and stock.get("inventory_id") not in eligible_inventory_ids
@@ -190,6 +199,141 @@ def nest_job_from_package(
         },
         "stock": stock_rows,
         "parts": parts,
+    }
+
+
+def parse_mill_lengths(raw: str) -> list[float]:
+    """Parse the comma-separated mill length list (feet), strictly."""
+    lengths = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            value = float(entry)
+        except ValueError as exc:
+            raise PipelineInputError(
+                f"--mill-lengths-ft entry {entry!r} is not a number"
+            ) from exc
+        if not math.isfinite(value) or value <= 0:
+            raise PipelineInputError(
+                "--mill-lengths-ft entries must be finite and greater than zero"
+            )
+        lengths.append(value)
+    if not lengths:
+        raise PipelineInputError("--mill-lengths-ft must list at least one length")
+    return sorted(set(lengths))
+
+
+def cutlist_job_from_package(
+    package: dict[str, Any],
+    *,
+    estimate_input_hash: str,
+    mill_lengths_ft: list[float],
+    kerf_in: float,
+    end_trim_in: float,
+    min_drop_in: float,
+    eligible_linear_inventory_ids: set[str] = frozenset(),
+) -> dict[str, Any] | None:
+    """Build the linear optimization job for member items purchased by length.
+
+    Declared purchasable linear stock replaces the default mill lengths for
+    its designation + grade group; confirmed on-hand sticks are added as
+    finite-quantity entries.
+    """
+    member_items = [
+        item
+        for item in package["items"]
+        if item["intent"] == "fabricated_part"
+        and not item.get("geometry")
+        and item.get("designation")
+        and item.get("length_ft") is not None
+        and item.get("grade")
+    ]
+    if not member_items:
+        return None
+    members = []
+    for item in member_items:
+        member = {
+            "source_id": item["source_id"],
+            "item_id": item["item_id"],
+            "name": item.get("mark") or item["item_id"],
+            "designation": item["designation"],
+            "grade": item.get("grade"),
+            "length_ft": item["length_ft"],
+            "qty": item["quantity"],
+        }
+        if item.get("unit_weight_plf") is not None:
+            member["unit_weight_plf"] = item["unit_weight_plf"]
+        members.append(member)
+    groups = sorted(
+        {
+            (member["designation"], member["grade"])
+            for member in members
+        },
+        key=repr,
+    )
+    stock = []
+    declared_purchasable_groups = set()
+    for index, entry in enumerate(package.get("stock", []), start=1):
+        if entry.get("stock_form") != "linear":
+            continue
+        if (
+            entry["stock_kind"] == "on_hand"
+            and entry.get("inventory_id") not in eligible_linear_inventory_ids
+        ):
+            continue
+        row = {
+            "stock_id": entry.get("inventory_id") or f"vendor-linear:{index:04d}",
+            "name": entry.get("inventory_id")
+            or (
+                f"{entry['designation']} {entry['length_ft']:g} ft "
+                "vendor length"
+            ),
+            "stock_kind": entry["stock_kind"],
+            "designation": entry["designation"],
+            "grade": entry["grade"],
+            "length_ft": entry["length_ft"],
+            "qty": entry["quantity"],
+        }
+        if entry.get("unlimited") and entry["stock_kind"] == "purchasable":
+            row["unlimited"] = True
+        stock.append(row)
+        if entry["stock_kind"] == "purchasable":
+            declared_purchasable_groups.add(
+                (normalize_designation(entry["designation"]), entry["grade"])
+            )
+    for designation, grade in groups:
+        if (
+            normalize_designation(designation),
+            grade,
+        ) in declared_purchasable_groups:
+            continue
+        stock.extend(
+            {
+                "stock_id": f"mill:{designation}:{grade}:{length_ft:g}ft",
+                "name": f"{designation} {length_ft:g} ft mill length",
+                "designation": designation,
+                "grade": grade,
+                "length_ft": length_ft,
+                "unlimited": True,
+            }
+            for length_ft in mill_lengths_ft
+        )
+    return {
+        "job_name": package["project"].get("name")
+        or package["project"]["project_id"],
+        "project_id": package["project"]["project_id"],
+        "revision_id": package["project"]["revision"]["revision_id"],
+        "estimate_input_hash": estimate_input_hash,
+        "unit_system": package["unit_system"],
+        "settings": {
+            "kerf_in": kerf_in,
+            "end_trim_in": end_trim_in,
+            "min_drop_in": min_drop_in,
+        },
+        "members": members,
+        "stock": stock,
     }
 
 
@@ -420,6 +564,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         raise PipelineInputError("--prepared-date must be an ISO date (YYYY-MM-DD)")
     if not _valid_date(args.issued_date):
         raise PipelineInputError("--issued-date must be an ISO date (YYYY-MM-DD)")
+    mill_lengths = parse_mill_lengths(args.mill_lengths_ft)
     input_path = Path(args.input)
     package = json.loads(input_path.read_text(encoding="utf-8"))
     validation = validate_estimate_package(package)
@@ -432,6 +577,14 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         {
             stock["inventory_id"]
             for stock in eligible_on_hand_stock(package)
+        }
+        if not validation.blockers
+        else set()
+    )
+    eligible_linear_inventory_ids = (
+        {
+            stock["inventory_id"]
+            for stock in eligible_on_hand_linear_stock(package)
         }
         if not validation.blockers
         else set()
@@ -517,12 +670,86 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
                         ),
                     )
                 )
-    unplaced = bool(nest_result and nest_result["unplaced"])
+    cutlist_result = None
+    if not validation_blocked:
+        for item in normalized["items"]:
+            if (
+                item["intent"] == "fabricated_part"
+                and not item.get("geometry")
+                and item.get("designation")
+                and item.get("length_ft") is not None
+                and not item.get("grade")
+            ):
+                findings.append(
+                    _finding(
+                        "member_missing_grade_excluded_from_cutlist",
+                        "warning",
+                        "$.items",
+                        (
+                            f"Member {item['item_id']} has no grade and was "
+                            "excluded from cut-list optimization."
+                        ),
+                    )
+                )
+        cutlist_job = cutlist_job_from_package(
+            normalized,
+            estimate_input_hash=validation.input_hash,
+            mill_lengths_ft=mill_lengths,
+            kerf_in=args.cutlist_kerf_in,
+            end_trim_in=args.end_trim_in,
+            min_drop_in=args.min_drop_in,
+            eligible_linear_inventory_ids=eligible_linear_inventory_ids,
+        )
+        if cutlist_job is not None:
+            cutlist_result = cutlist_engine.run_job(cutlist_job)
+            for cutlist_finding in cutlist_result["validation_findings"]:
+                findings.append(
+                    _finding(
+                        cutlist_finding["code"],
+                        "blocker"
+                        if cutlist_finding["severity"] == "error"
+                        else "warning",
+                        cutlist_finding["path"],
+                        cutlist_finding["message"],
+                    )
+                )
+            for verifier_finding in cutlist_result["verification"]["findings"]:
+                findings.append(
+                    _finding(
+                        verifier_finding["code"],
+                        "blocker",
+                        verifier_finding["path"],
+                        verifier_finding["message"],
+                    )
+                )
+            if cutlist_result["unplaced"]:
+                findings.append(
+                    _finding(
+                        "unplaced_members",
+                        "blocker",
+                        "$.cutlist.unplaced",
+                        (
+                            f"{sum(row['quantity'] for row in cutlist_result['unplaced'])} "
+                            "required member(s) exceed every configured mill length."
+                        ),
+                    )
+                )
+    unplaced = bool(
+        (nest_result and nest_result["unplaced"])
+        or (cutlist_result and cutlist_result["unplaced"])
+    )
     nest_blocked = bool(
         nest_result
         and (
             nest_result["outcome"] == "blocked"
             or nest_result["verification"]["status"] != "verified"
+        )
+    )
+    cutlist_blocked = bool(
+        cutlist_result
+        and (
+            cutlist_result["outcome"] == "blocked"
+            or cutlist_result["verification"]["status"] != "verified"
         )
     )
     reference_only = bool(
@@ -538,8 +765,14 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         )
 
     render_missing = []
-    if not args.no_render and nest_result is not None:
-        render_missing = nest_engine.missing_render_dependencies()
+    if not args.no_render and (
+        nest_result is not None or cutlist_result is not None
+    ):
+        render_missing = (
+            nest_engine.missing_render_dependencies()
+            if nest_result is not None
+            else cutlist_engine.missing_render_dependencies()
+        )
         if render_missing:
             findings.append(
                 _finding(
@@ -553,7 +786,13 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
     rfq_normalized = None
     inventory_consumption = []
     compiler_error = None
-    if not validation_blocked and not profile_blocked and not nest_blocked and not render_missing:
+    if (
+        not validation_blocked
+        and not profile_blocked
+        and not nest_blocked
+        and not cutlist_blocked
+        and not render_missing
+    ):
         try:
             rfq_normalized = rfq_compiler.normalize_canonical_package(package)
             inventory_consumption = apply_inventory_consumption(
@@ -576,6 +815,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         validation_blocked
         or profile_blocked
         or nest_blocked
+        or cutlist_blocked
         or unplaced
         or bool(render_missing)
         or compiler_error is not None
@@ -587,7 +827,12 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
     ]
     if blocked:
         outcome = "dependency_missing" if render_missing else "blocked"
-        package_status = "nested_partial" if unplaced else "draft"
+        if nest_result and nest_result["unplaced"]:
+            package_status = "nested_partial"
+        elif cutlist_result and cutlist_result["unplaced"]:
+            package_status = "cutlist_partial"
+        else:
+            package_status = "draft"
     elif reference_only or review_warnings:
         outcome = "review_required"
         package_status = "rfq_draft_review_required"
@@ -596,9 +841,15 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         package_status = "rfq_ready_for_review"
 
     handoff = _annotated_handoff(nest_result)
+    linear_handoff = (
+        copy.deepcopy(cutlist_result["rfq_linear"])
+        if cutlist_result is not None
+        else None
+    )
     configuration = {
         "pipeline_version": PIPELINE_VERSION,
         "nest_algorithm_version": nest_engine.NEST_ALGORITHM_VERSION,
+        "cutlist_algorithm_version": cutlist_engine.CUTLIST_ALGORITHM_VERSION,
         "rfq_compiler_version": rfq_compiler.RFQ_COMPILER_VERSION,
         "prepared_date": args.prepared_date,
         "issued_date": args.issued_date,
@@ -607,6 +858,10 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         "part_gap_in": args.part_gap_in,
         "edge_margin_in": args.edge_margin_in,
         "density_lb_in3": args.density_lb_in3,
+        "mill_lengths_ft": mill_lengths,
+        "cutlist_kerf_in": args.cutlist_kerf_in,
+        "end_trim_in": args.end_trim_in,
+        "min_drop_in": args.min_drop_in,
         "render": not args.no_render,
         "bake": not args.no_bake,
         "profile_hash": rfq_compiler.profile_semantic_hash(profile),
@@ -657,6 +912,17 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
                 "verification": nest_result["verification"],
             }
         ),
+        "cutlist": (
+            None
+            if cutlist_result is None
+            else {
+                "outcome": cutlist_result["outcome"],
+                "unplaced": cutlist_result["unplaced"],
+                "verification": cutlist_result["verification"],
+                "weight_status": cutlist_result["weight_status"],
+                "purchase_summary": cutlist_result["purchase_summary"],
+            }
+        ),
         "rfq": {
             "generated": not blocked,
             "document_status": "DRAFT — NOT SENT OR AWARDED",
@@ -676,13 +942,16 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
             "estimate_package": ESTIMATE_PACKAGE_VERSION,
             "normalized_bom": "1.0.0",
             "nest_result": nest_engine.NEST_RESULT_VERSION,
+            "cutlist_result": cutlist_engine.CUTLIST_RESULT_VERSION,
             "rfq_nesting": rfq_compiler.NEST_HANDOFF_VERSION,
+            "rfq_linear": rfq_compiler.LINEAR_HANDOFF_VERSION,
             "rfq_workbook": rfq_compiler.RFQ_COMPILER_VERSION,
         },
         tool_versions={
             "pi_steel": package_version(__file__),
             "estimate_pipeline": PIPELINE_VERSION,
             "nest_algorithm": nest_engine.NEST_ALGORITHM_VERSION,
+            "cutlist_algorithm": cutlist_engine.CUTLIST_ALGORITHM_VERSION,
             "rfq_compiler": rfq_compiler.RFQ_COMPILER_VERSION,
         },
         explicit_dates={
@@ -704,6 +973,22 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
             publisher.write_json(
                 "rfq-nesting.json", handoff, readiness="diagnostic"
             )
+        if cutlist_result is not None:
+            publisher.write_json(
+                "cutlist-result.json", cutlist_result, readiness="diagnostic"
+            )
+            publisher.write_json(
+                "rfq-linear.json", linear_handoff, readiness="diagnostic"
+            )
+            if cutlist_result["outcome"] == "ready" and outcome == "ready":
+                publisher.write_bytes(
+                    "cutting_list.csv",
+                    cutlist_engine.render_cutting_list_csv(
+                        cutlist_result
+                    ).encode("utf-8"),
+                    readiness="geometry_verified",
+                    media_type="text/csv",
+                )
         if inventory_consumption:
             publisher.write_json(
                 "inventory-consumption.json",
@@ -716,6 +1001,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
                 rfq_normalized,
                 profile,
                 nest_handoff=handoff,
+                linear_handoff=linear_handoff,
                 issued_date=args.issued_date,
                 project_location=args.project_location,
                 output_directory=publisher.staging_path,
@@ -737,6 +1023,29 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
                 "workbook-semantic.json",
                 rfq_compiler.workbook_semantic_projection(workbook_path),
                 readiness="diagnostic",
+            )
+
+        if (
+            not args.no_render
+            and cutlist_result is not None
+            and not render_missing
+            and cutlist_result["bar_reports"]
+        ):
+            cutlist_engine.render_layout(
+                cutlist_result,
+                publisher.staging_path,
+                pdf_name="cutlist-layout.pdf",
+                png_name="cutlist-bars.png",
+            )
+            publisher.register_artifact(
+                "cutlist-layout.pdf",
+                readiness="reference_only",
+                media_type="application/pdf",
+            )
+            publisher.register_artifact(
+                "cutlist-bars.png",
+                readiness="reference_only",
+                media_type="image/png",
             )
 
         if not args.no_render and nest_result is not None and not render_missing:
@@ -802,6 +1111,14 @@ def main(argv=None) -> int:
     parser.add_argument("--part-gap-in", type=float, default=0.25)
     parser.add_argument("--edge-margin-in", type=float, default=0.5)
     parser.add_argument("--density-lb-in3", type=float, default=0.2836)
+    parser.add_argument(
+        "--mill-lengths-ft",
+        default="40,50,60",
+        help="Comma-separated purchasable mill lengths for member cut-lists",
+    )
+    parser.add_argument("--cutlist-kerf-in", type=float, default=0.125)
+    parser.add_argument("--end-trim-in", type=float, default=0.25)
+    parser.add_argument("--min-drop-in", type=float, default=24.0)
     parser.add_argument("--no-render", action="store_true")
     parser.add_argument("--no-bake", action="store_true")
     parser.add_argument("--run-id", help=argparse.SUPPRESS)

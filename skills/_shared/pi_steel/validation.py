@@ -445,6 +445,16 @@ def validate_estimate_package(package: dict[str, Any]) -> ValidationResult:
                     )
 
     for index, stock in enumerate(package.get("stock", [])):
+        if stock.get("stock_form") == "linear" and stock.get("unlimited"):
+            if stock.get("stock_kind") == "on_hand":
+                _add(
+                    findings,
+                    input_hash,
+                    "unlimited_on_hand_stock",
+                    "blocker",
+                    f"$.stock[{index}].unlimited",
+                    "On-hand stock must be a finite, measured quantity.",
+                )
         if stock.get("stock_kind") != "on_hand":
             continue
         required = (
@@ -574,6 +584,41 @@ def eligible_on_hand_stock(package: dict[str, Any]) -> list[dict[str, Any]]:
         ):
             eligible.append(stock)
     return eligible
+
+
+def eligible_on_hand_linear_stock(package: dict[str, Any]) -> list[dict[str, Any]]:
+    """Confirmed, available on-hand linear sticks eligible to reduce purchasing."""
+    input_hash = estimate_input_hash(package)
+    eligible = []
+    for stock in package.get("stock", []):
+        confirmation = stock.get("reviewer_confirmation", {})
+        if (
+            stock.get("stock_form") == "linear"
+            and stock.get("stock_kind") == "on_hand"
+            and stock.get("inventory_id")
+            and stock.get("designation")
+            and stock.get("grade")
+            and finite_positive(stock.get("length_ft"))
+            and not stock.get("unlimited")
+            and stock.get("measured_at")
+            and stock.get("source")
+            and stock.get("status") == "available"
+            and confirmation.get("actor")
+            and confirmation.get("timestamp")
+            and confirmation.get("estimate_hash") == input_hash
+        ):
+            eligible.append(stock)
+    return eligible
+
+
+def linear_purchasable_stock(package: dict[str, Any]) -> list[dict[str, Any]]:
+    """Vendor-declared purchasable linear stock lengths."""
+    return [
+        stock
+        for stock in package.get("stock", [])
+        if stock.get("stock_form") == "linear"
+        and stock.get("stock_kind") == "purchasable"
+    ]
 
 
 def purchasable_items(package: dict[str, Any]) -> list[dict[str, Any]]:

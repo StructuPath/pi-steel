@@ -21,6 +21,15 @@ ITEM_INTENTS = frozenset(
 )
 
 
+def is_sha256(value: Any) -> bool:
+    """Return whether a value is a lowercase hex SHA-256 digest."""
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 def canonical_json_bytes(value: Any) -> bytes:
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False

@@ -137,7 +137,10 @@ def test_ready_package_renders_reference_and_verified_outputs(tmp_path):
         for line in info.splitlines()
         if line.startswith("Pages:")
     )
-    assert page_count == 1
+    # The workbook contract is one page WIDE (fitToWidth=1, fitToHeight=0);
+    # vertical pagination varies with content and the LibreOffice version.
+    # The cap only guards against a runaway layout regression.
+    assert 1 <= page_count <= 3
 
     text_output = tmp_path / "workbook.txt"
     extracted = subprocess.run(
@@ -164,22 +167,41 @@ def test_ready_package_renders_reference_and_verified_outputs(tmp_path):
     )
     root = ElementTree.parse(bbox_output).getroot()
     pages = [element for element in root.iter() if element.tag.endswith("page")]
-    words = [element for element in root.iter() if element.tag.endswith("word")]
-    assert len(pages) == 1
-    page_width = float(pages[0].attrib["width"])
-    page_height = float(pages[0].attrib["height"])
-    assert words
-    for word in words:
-        assert 0 <= float(word.attrib["xMin"]) < float(word.attrib["xMax"]) <= page_width
-        assert 0 <= float(word.attrib["yMin"]) < float(word.attrib["yMax"]) <= page_height
+    assert len(pages) == page_count
+    first_width = float(pages[0].attrib["width"])
+    for page in pages:
+        assert float(page.attrib["width"]) == first_width
+        page_width = float(page.attrib["width"])
+        page_height = float(page.attrib["height"])
+        page_words = [
+            element for element in page.iter() if element.tag.endswith("word")
+        ]
+        assert page_words
+        for word in page_words:
+            assert 0 <= float(word.attrib["xMin"]) < float(word.attrib["xMax"]) <= page_width
+            assert 0 <= float(word.attrib["yMin"]) < float(word.attrib["yMax"]) <= page_height
 
-    word_positions = {
-        (word.text or "").upper(): float(word.attrib["yMin"]) for word in words
-    }
-    assert word_positions["REQUEST"] < page_height * 0.2
+    first_page_width = float(pages[0].attrib["width"])
+    first_page_height = float(pages[0].attrib["height"])
+    words = [
+        element for element in pages[0].iter() if element.tag.endswith("word")
+    ]
+
+    # Document-order positions: (page index, yMin) compares across pages.
+    word_positions = {}
+    page_heights = {}
+    for page_index, page in enumerate(pages):
+        for word in page.iter():
+            if not word.tag.endswith("word"):
+                continue
+            key = (word.text or "").upper()
+            position = (page_index, float(word.attrib["yMin"]))
+            word_positions.setdefault(key, position)
+            page_heights[key] = float(page.attrib["height"])
+    assert word_positions["REQUEST"] < (0, first_page_height * 0.2)
     assert word_positions["RESPONSE"] < word_positions["TOTAL"]
     assert word_positions["TOTAL"] < word_positions["TERMS"]
-    assert word_positions["TERMS"] < page_height * 0.95
+    assert word_positions["TERMS"][1] < page_heights["TERMS"] * 0.95
 
     images = subprocess.run(
         [tools["pdfimages"], "-list", workbook_pdf],
@@ -229,12 +251,12 @@ def test_ready_package_renders_reference_and_verified_outputs(tmp_path):
     logo_rows, logo_columns = numpy.where(synthetic_logo)
     assert logo_rows.size and logo_columns.size
     logo_bounds = (
-        logo_columns.min() / raster.shape[1] * page_width,
-        logo_rows.min() / raster.shape[0] * page_height,
-        logo_columns.max() / raster.shape[1] * page_width,
-        logo_rows.max() / raster.shape[0] * page_height,
+        logo_columns.min() / raster.shape[1] * first_page_width,
+        logo_rows.min() / raster.shape[0] * first_page_height,
+        logo_columns.max() / raster.shape[1] * first_page_width,
+        logo_rows.max() / raster.shape[0] * first_page_height,
     )
-    assert logo_bounds[1] < page_height * 0.2
+    assert logo_bounds[1] < first_page_height * 0.2
     for word in words:
         if (word.text or "").upper() not in {"RESPONSE", "TOTAL", "TERMS"}:
             continue

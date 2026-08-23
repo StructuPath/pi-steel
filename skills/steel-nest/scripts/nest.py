@@ -36,7 +36,6 @@ latest-run.json pointer. Exit 0 is ready, 2 requires review, and 3 is blocked.
 """
 
 import argparse
-import importlib.util
 import json
 import math
 import os
@@ -57,7 +56,9 @@ from pi_steel import (  # noqa: E402
     RunPublisher,
     StageArgumentParser,
     canonical_json_bytes,
+    is_sha256,
     item_id_for,
+    missing_optional_modules,
     outcome_exit_code,
     package_version,
     placement_ids,
@@ -76,12 +77,7 @@ STEEL_DENSITY = 0.2836  # lb/in^3, A36 mild steel
 NEST_ALGORITHM_VERSION = "maxrects-bssf-u3"
 
 
-def _valid_hash(value):
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
-    )
+_valid_hash = is_sha256
 
 
 # --------------------------------------------------------------------------
@@ -1491,8 +1487,7 @@ def stage_decision(res, geometry_verified_only=False):
 
 def missing_render_dependencies():
     """Return optional render modules unavailable to this interpreter."""
-    modules = ("ezdxf", "matplotlib", "numpy")
-    return [name for name in modules if importlib.util.find_spec(name) is None]
+    return missing_optional_modules(("ezdxf", "matplotlib", "numpy"))
 
 
 def publish_nest_run(job, args):

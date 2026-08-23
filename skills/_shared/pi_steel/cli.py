@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .run_manifest import (
     ManifestError,
@@ -82,6 +83,15 @@ class StageArgumentParser(argparse.ArgumentParser):
             else ""
         )
         self.exit(1, f"{self.prog}: error: {message}{suffix}\n")
+
+
+def missing_optional_modules(module_names: Iterable[str]) -> list[str]:
+    """Return the named optional modules unavailable to this interpreter."""
+    return [
+        name
+        for name in module_names
+        if importlib.util.find_spec(name) is None
+    ]
 
 
 def package_version(entry_file: str) -> str:

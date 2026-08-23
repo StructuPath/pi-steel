@@ -1,12 +1,18 @@
 """Shared deterministic runtime primitives for pi-steel skills."""
 
-from .cli import StageArgumentParser, package_version, publish_failure_diagnostic
+from .cli import (
+    StageArgumentParser,
+    missing_optional_modules,
+    package_version,
+    publish_failure_diagnostic,
+)
 from .contracts import (
     ESTIMATE_PACKAGE_VERSION,
     ITEM_INTENTS,
     NEST_RESULT_VERSION,
     estimate_input_hash,
     instance_ids,
+    is_sha256,
     item_id_for,
     placement_ids,
 )
@@ -37,8 +43,10 @@ __all__ = [
     "canonical_json_bytes",
     "estimate_input_hash",
     "instance_ids",
+    "is_sha256",
     "item_id_for",
     "placement_ids",
+    "missing_optional_modules",
     "outcome_exit_code",
     "package_version",
     "publish_failure_diagnostic",

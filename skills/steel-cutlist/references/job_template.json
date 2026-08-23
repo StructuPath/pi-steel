@@ -1,0 +1,53 @@
+{
+  "_comment": "steel-cutlist job template. Copy, fill in, and delete the _comment keys. Lengths: provide exactly one of length_in or length_ft per entry; length_ft accepts a number (28.5) or a feet-inches string (\"28'-6\").",
+  "job_name": "JOB NAME",
+  "customer": "",
+  "project_id": "PROJECT-ID",
+  "revision_id": "REV-0",
+  "unit_system": "imperial",
+  "settings": {
+    "_comment": "kerf_in: band saw ~0.06, cold saw ~0.09, abrasive ~0.19. end_trim_in applies per bar end. Drops >= min_drop_in are reported as reusable candidates.",
+    "kerf_in": 0.125,
+    "end_trim_in": 0.25,
+    "min_drop_in": 24
+  },
+  "members": [
+    {
+      "source_id": "STABLE-SOURCE-ID",
+      "name": "B1",
+      "designation": "W12X26",
+      "grade": "A992",
+      "length_ft": 28.5,
+      "qty": 4
+    },
+    {
+      "_comment": "unit_weight_plf is optional; when omitted the bundled AISC database is consulted by designation.",
+      "source_id": "STABLE-SOURCE-ID-2",
+      "name": "C1",
+      "designation": "HSS6X6X1/2",
+      "grade": "A500B",
+      "length_in": 174,
+      "qty": 3,
+      "unit_weight_plf": 35.24
+    }
+  ],
+  "stock": [
+    {
+      "stock_id": "STK-W12X26-40",
+      "designation": "W12X26",
+      "grade": "A992",
+      "length_ft": 40,
+      "unlimited": true,
+      "cost_per_ft": 31.2
+    },
+    {
+      "_comment": "Finite quantities model on-hand material or vendor availability. Use exactly one cost basis: cost_per_ft or cost_per_bar.",
+      "stock_id": "STK-HSS-48",
+      "designation": "HSS6X6X1/2",
+      "grade": "A500B",
+      "length_ft": 48,
+      "qty": 2,
+      "cost_per_bar": 1900
+    }
+  ]
+}
