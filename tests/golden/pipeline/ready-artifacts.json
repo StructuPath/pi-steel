@@ -1,10 +1,13 @@
 {
   "artifact_paths": [
     "Synthetic_Pipeline_Project_RFQ_Material_List.xlsx",
+    "cutlist-result.json",
+    "cutting_list.csv",
     "estimate-package.json",
     "nest-result.json",
     "normalized-bom.json",
     "qa-report.json",
+    "rfq-linear.json",
     "rfq-nesting.json",
     "workbook-semantic.json"
   ],

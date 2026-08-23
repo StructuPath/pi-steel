@@ -1205,7 +1205,7 @@ def render_cutting_list_csv(res):
 # --------------------------------------------------------------------------
 # Visual layout  (PNG + combined PDF)
 # --------------------------------------------------------------------------
-def render_layout(res, outdir):
+def render_layout(res, outdir, pdf_name="layout.pdf", png_name="bars.png"):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1215,8 +1215,8 @@ def render_layout(res, outdir):
 
     end_trim = res["meta"]["end_trim_in"]
     kerf = res["meta"]["kerf_in"]
-    pdf_path = os.path.join(outdir, "layout.pdf")
-    png_path = os.path.join(outdir, "bars.png")
+    pdf_path = os.path.join(outdir, pdf_name)
+    png_path = os.path.join(outdir, png_name)
     reports = res["bar_reports"]
 
     with PdfPages(pdf_path) as pdf:

@@ -393,3 +393,62 @@ def test_no_vendor_supply_items_publish_blocked_diagnostics(tmp_path):
     assert not list(run_path.glob("*.xlsx"))
     qa = load_json(run_path / "qa-report.json")
     assert any(finding["code"] == "rfq_input_blocked" for finding in qa["findings"])
+
+
+def test_ready_pipeline_publishes_verified_cutlist_and_linear_handoff(tmp_path):
+    completed, run_path = run_pipeline(
+        tmp_path, load_package(), "SYNTHETIC-PIPELINE-CUTLIST"
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    manifest = load_json(run_path / "run-manifest.json")
+    cutlist = load_json(run_path / "cutlist-result.json")
+    assert cutlist["outcome"] == "ready"
+    assert cutlist["verification"]["status"] == "verified"
+    assert cutlist["estimate_input_hash"] == manifest["input_hash"]
+    assert {row["designation"] for row in cutlist["purchase_summary"]} == {
+        "W12X26",
+        "HSS6X6X3/8",
+    }
+    assert cutlist["weight_status"] == "known"
+
+    handoff = load_json(run_path / "rfq-linear.json")
+    assert handoff["schema_version"] == "1.0.0"
+    assert handoff["estimate_input_hash"] == manifest["input_hash"]
+
+    cutting_list = (run_path / "cutting_list.csv").read_text().splitlines()
+    assert cutting_list[0].startswith("Bar,Stock,Designation")
+    assert len(cutting_list) > 1
+
+    qa_report = load_json(run_path / "qa-report.json")
+    assert qa_report["cutlist"]["outcome"] == "ready"
+    assert qa_report["cutlist"]["weight_status"] == "known"
+
+    workbook = openpyxl.load_workbook(next(run_path.glob("*.xlsx")))
+    values = {
+        cell.value
+        for row in workbook["RFQ Draft"].iter_rows()
+        for cell in row
+        if isinstance(cell.value, str)
+    }
+    assert "LINEAR STOCK / CUT-LIST REFERENCE (For Fabricator Review)" in values
+
+
+def test_member_exceeding_all_mill_lengths_blocks_as_cutlist_partial(tmp_path):
+    package = load_package()
+    for item in package["items"]:
+        if item.get("mark") == "W1":
+            item["length_ft"] = 70
+    completed, run_path = run_pipeline(
+        tmp_path, package, "SYNTHETIC-PIPELINE-CUTLIST-BLOCKED"
+    )
+    assert completed.returncode == 3
+    manifest = load_json(run_path / "run-manifest.json")
+    assert manifest["run_outcome"] == "blocked"
+    assert manifest["package_status"] == "cutlist_partial"
+    qa_report = load_json(run_path / "qa-report.json")
+    assert any(
+        finding["code"] == "unplaced_members" for finding in qa_report["findings"]
+    )
+    assert not (run_path / "cutting_list.csv").exists()
+    cutlist = load_json(run_path / "cutlist-result.json")
+    assert cutlist["unplaced"][0]["reason"] == "no_compatible_stock_fit"
