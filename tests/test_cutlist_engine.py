@@ -612,3 +612,48 @@ def test_without_cost_basis_exact_search_minimizes_purchased_length():
     assert result["total_stock_length_ft"] == 230.0
     assert result["bars_used"] == 5
     assert result["verification"]["status"] == "verified"
+
+
+def test_exact_search_finds_optimal_partial_plan_when_stock_is_finite():
+    # One capacity-10 bar. Greedy places [5,5] and strands three pieces;
+    # the exact search's skip branches find [4,3,3], stranding only two.
+    job = {
+        "job_name": "SYNTHETIC-EXACT-PARTIAL",
+        "project_id": "SYNTHETIC-PRJ",
+        "revision_id": "SYNTHETIC-REV",
+        "unit_system": "imperial",
+        "settings": {"kerf_in": 0, "end_trim_in": 0, "min_drop_in": 1000},
+        "members": [
+            {
+                "source_id": f"SYNTHETIC-P{length}",
+                "name": f"SYNTHETIC-P{length}",
+                "designation": "FB1X1",
+                "grade": "A36",
+                "length_in": length,
+                "qty": qty,
+                "unit_weight_plf": 3.4,
+            }
+            for length, qty in ((5, 2), (4, 1), (3, 2))
+        ],
+        "stock": [
+            {
+                "stock_id": "SYNTHETIC-STK-ONE",
+                "designation": "FB1X1",
+                "grade": "A36",
+                "length_in": 10,
+                "qty": 1,
+            }
+        ],
+    }
+    result = cutlist.run_job(job)
+    assert result["outcome"] == "blocked"
+    assert result["package_status"] == "cutlist_partial"
+    assert sum(row["quantity"] for row in result["unplaced"]) == 2
+    assert all(row["reason"] == "stock_exhausted" for row in result["unplaced"])
+    cuts = sorted(
+        cut["length_in"]
+        for report in result["bar_reports"]
+        for cut in report["cuts"]
+    )
+    assert cuts == [3, 3, 4]
+    assert result["verification"]["status"] == "verified"

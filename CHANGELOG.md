@@ -10,8 +10,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Bounded exact cut-list optimization: designation + grade groups with up
   to 12 pieces run a deterministic branch-and-bound search (seeded and
-  bounded by the portfolio result, fixed node budget) that only ever
-  replaces the greedy plan with a strictly better one.
+  bounded by the portfolio result, fixed node budget) that explores
+  complete and partial placements alike and only ever replaces the greedy
+  plan with a strictly better one — including stranding fewer members when
+  finite stock cannot hold everything.
 - `output-contract.md` documents the cut-list artifacts and
   `cutlist_partial` status; the estimate-package example now includes
   member items and vendor linear stock.

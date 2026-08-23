@@ -629,19 +629,22 @@ def _rank_solution(bars, unplaced_count, cost_priority):
 
 
 class _SearchBudgetExceeded(Exception):
-    pass
+    """Raised when the exact search exhausts its deterministic node budget."""
 
 
 def _exact_solve_group(units, group_stock, kerf, best_rank, cost_priority):
-    """Branch-and-bound over complete bar assignments for a small group.
+    """Branch-and-bound over bar assignments for a small group.
 
-    Seeded with the portfolio's rank for pruning, bounded by a fixed node
-    budget so runtime stays deterministic. Returns (bars, unplaced, rank)
-    only when a complete assignment strictly beats ``best_rank``; otherwise
-    None and the caller keeps the portfolio result.
+    Every unit branches over placements into open bars, opening each stock
+    type, or remaining unplaced (``stock_exhausted``), so optimal partial
+    plans are found when finite stock cannot hold everything. Seeded with
+    the portfolio's rank for pruning and bounded by a fixed node budget so
+    runtime stays deterministic. Returns (bars, unplaced, rank) only when a
+    solution strictly beats ``best_rank``; otherwise None and the caller
+    keeps the portfolio result.
     """
     placeable = []
-    unplaced_units = []
+    prefilter_unplaced = []
     for unit in units:
         if any(
             unit["length_in"] <= stock["usable_in"] + EPS
@@ -649,13 +652,15 @@ def _exact_solve_group(units, group_stock, kerf, best_rank, cost_priority):
         ):
             placeable.append(unit)
         else:
-            unplaced_units.append({**unit, "reason": "no_compatible_stock_fit"})
+            prefilter_unplaced.append(
+                {**unit, "reason": "no_compatible_stock_fit"}
+            )
     if not placeable or len(placeable) > EXACT_SEARCH_MAX_UNITS:
         return None
     stocks = sorted(group_stock, key=lambda stock: stock["stock_id"])
     used = {stock["stock_id"]: 0 for stock in stocks}
     bars_state = []  # mutable [stock, remaining, cuts] triples
-    unplaced_count = len(unplaced_units)
+    skipped = []  # units left unplaced on the current search path
     state = {"nodes": 0, "best": None, "best_rank": best_rank}
 
     def primary_bound():
@@ -675,25 +680,36 @@ def _exact_solve_group(units, group_stock, kerf, best_rank, cost_priority):
         )
 
     def descend(index):
+        """Assign placeable[index:] and record any strictly better leaf.
+
+        Pruning compares (unplaced so far, primary bound) with the best
+        rank; both components only grow along a path, so the lexicographic
+        comparison is a valid lower bound.
+        """
         state["nodes"] += 1
         if state["nodes"] > EXACT_SEARCH_NODE_BUDGET:
             raise _SearchBudgetExceeded
-        if (
-            state["best_rank"] is not None
-            and primary_bound() > state["best_rank"][1]
-        ):
+        if state["best_rank"] is not None and (
+            len(prefilter_unplaced) + len(skipped),
+            primary_bound(),
+        ) > (state["best_rank"][0], state["best_rank"][1]):
             return
         if index == len(placeable):
             solution = [
                 {"stock": triple[0], "cuts": list(triple[2]), "remaining": 0.0}
                 for triple in bars_state
             ]
-            rank = _rank_solution(solution, unplaced_count, cost_priority)
+            rank = _rank_solution(
+                solution,
+                len(prefilter_unplaced) + len(skipped),
+                cost_priority,
+            )
             if state["best_rank"] is None or rank < state["best_rank"]:
                 state["best_rank"] = rank
-                state["best"] = [
-                    (triple[0], list(triple[2])) for triple in bars_state
-                ]
+                state["best"] = (
+                    [(triple[0], list(triple[2])) for triple in bars_state],
+                    list(skipped),
+                )
             return
         unit = placeable[index]
         length = unit["length_in"]
@@ -722,6 +738,9 @@ def _exact_solve_group(units, group_stock, kerf, best_rank, cost_priority):
             descend(index + 1)
             bars_state.pop()
             used[stock["stock_id"]] -= 1
+        skipped.append(unit)
+        descend(index + 1)
+        skipped.pop()
 
     try:
         descend(0)
@@ -729,12 +748,16 @@ def _exact_solve_group(units, group_stock, kerf, best_rank, cost_priority):
         return None
     if state["best"] is None:
         return None
+    best_bars, best_skipped = state["best"]
     bars = []
-    for stock, cuts in state["best"]:
+    for stock, cuts in best_bars:
         bar = {"stock": stock, "cuts": [], "remaining": stock["usable_in"]}
         for unit in cuts:
             _place_on_bar(bar, unit, kerf)
         bars.append(bar)
+    unplaced_units = prefilter_unplaced + [
+        {**unit, "reason": "stock_exhausted"} for unit in best_skipped
+    ]
     return bars, unplaced_units, state["best_rank"]
 
 
