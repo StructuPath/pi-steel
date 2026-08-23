@@ -71,7 +71,9 @@ from pi_steel.contracts import content_hash, fallback_source_id, instance_ids  #
 from pi_steel.parsing import normalize_designation, parse_length_ft  # noqa: E402
 
 CUTLIST_RESULT_VERSION = "1.0.0"
-CUTLIST_ALGORITHM_VERSION = "portfolio-bfd-v1"
+CUTLIST_ALGORITHM_VERSION = "portfolio-bfd-exact-v1"
+EXACT_SEARCH_MAX_UNITS = 12
+EXACT_SEARCH_NODE_BUDGET = 250_000
 EPS = 1e-6
 AISC_DATABASE_RELATIVE = Path("steel-takeoff") / "assets" / "aisc-shapes-database.json"
 
@@ -601,43 +603,200 @@ def _ranking_cost(stock):
     return _bar_cost(stock)
 
 
-def _solve_group(units, group_stock, kerf):
-    """Try a portfolio of deterministic strategies; keep the cheapest result.
+def _rank_solution(bars, unplaced_count, cost_priority):
+    """Solution ranking, always fewest unplaced members first.
 
-    Candidates: the mixed-stock greedy plus each single-stock-length
-    restriction. Solutions rank by fewest unplaced members, least PURCHASED
-    stock length (on-hand consumption is free), lowest known purchase cost
-    (unknown costs rank last), fewest purchased bars, then least total
-    length. Ties resolve by strategy name for determinism.
+    When every stock entry in the group has a known purchase basis
+    (``cost_priority``), lowest cost decides next — buying cheaper beats
+    buying shorter. Otherwise least PURCHASED stock length decides (on-hand
+    consumption is free) with any known cost as a later tie-break. Fewest
+    purchased bars, then least total length, settle remaining ties.
+    """
+    purchased = [
+        bar for bar in bars if bar["stock"]["stock_kind"] == "purchasable"
+    ]
+    purchased_length = round(
+        sum(bar["stock"]["length_in"] for bar in purchased), 6
+    )
+    costs = [_ranking_cost(bar["stock"]) for bar in bars]
+    cost_rank = round(sum(costs), 2) if None not in costs else math.inf
+    total_length = round(sum(bar["stock"]["length_in"] for bar in bars), 6)
+    if cost_priority:
+        primary, secondary = cost_rank, purchased_length
+    else:
+        primary, secondary = purchased_length, cost_rank
+    return (unplaced_count, primary, secondary, len(purchased), total_length)
+
+
+class _SearchBudgetExceeded(Exception):
+    """Raised when the exact search exhausts its deterministic node budget."""
+
+
+def _exact_solve_group(units, group_stock, kerf, best_rank, cost_priority):
+    """Branch-and-bound over bar assignments for a small group.
+
+    Every unit branches over placements into open bars, opening each stock
+    type, or remaining unplaced (``stock_exhausted``), so optimal partial
+    plans are found when finite stock cannot hold everything. Seeded with
+    the portfolio's rank for pruning and bounded by a fixed node budget so
+    runtime stays deterministic. Returns (bars, unplaced, rank) only when a
+    solution strictly beats ``best_rank``; otherwise None and the caller
+    keeps the portfolio result.
+    """
+    placeable = []
+    prefilter_unplaced = []
+    for unit in units:
+        if any(
+            unit["length_in"] <= stock["usable_in"] + EPS
+            for stock in group_stock
+        ):
+            placeable.append(unit)
+        else:
+            prefilter_unplaced.append(
+                {**unit, "reason": "no_compatible_stock_fit"}
+            )
+    if not placeable or len(placeable) > EXACT_SEARCH_MAX_UNITS:
+        return None
+    stocks = sorted(group_stock, key=lambda stock: stock["stock_id"])
+    used = {stock["stock_id"]: 0 for stock in stocks}
+    bars_state = []  # mutable [stock, remaining, cuts] triples
+    skipped = []  # units left unplaced on the current search path
+    state = {"nodes": 0, "best": None, "best_rank": best_rank}
+
+    def primary_bound():
+        """Monotone lower bound on the rank's primary component."""
+        if cost_priority:
+            costs = [_ranking_cost(triple[0]) for triple in bars_state]
+            return (
+                round(sum(costs), 2) if None not in costs else math.inf
+            )
+        return round(
+            sum(
+                triple[0]["length_in"]
+                for triple in bars_state
+                if triple[0]["stock_kind"] == "purchasable"
+            ),
+            6,
+        )
+
+    def descend(index):
+        """Assign placeable[index:] and record any strictly better leaf.
+
+        Pruning compares (unplaced so far, primary bound) with the best
+        rank; both components only grow along a path, so the lexicographic
+        comparison is a valid lower bound.
+        """
+        state["nodes"] += 1
+        if state["nodes"] > EXACT_SEARCH_NODE_BUDGET:
+            raise _SearchBudgetExceeded
+        if state["best_rank"] is not None and (
+            len(prefilter_unplaced) + len(skipped),
+            primary_bound(),
+        ) > (state["best_rank"][0], state["best_rank"][1]):
+            return
+        if index == len(placeable):
+            solution = [
+                {"stock": triple[0], "cuts": list(triple[2]), "remaining": 0.0}
+                for triple in bars_state
+            ]
+            rank = _rank_solution(
+                solution,
+                len(prefilter_unplaced) + len(skipped),
+                cost_priority,
+            )
+            if state["best_rank"] is None or rank < state["best_rank"]:
+                state["best_rank"] = rank
+                state["best"] = (
+                    [(triple[0], list(triple[2])) for triple in bars_state],
+                    list(skipped),
+                )
+            return
+        unit = placeable[index]
+        length = unit["length_in"]
+        seen = set()
+        for triple in bars_state:
+            slot = (triple[0]["stock_id"], round(triple[1], 6))
+            if slot in seen:
+                continue
+            seen.add(slot)
+            if length <= triple[1] + EPS:
+                previous = triple[1]
+                triple[2].append(unit)
+                triple[1] = max(previous - length - kerf, 0.0)
+                descend(index + 1)
+                triple[1] = previous
+                triple[2].pop()
+        for stock in stocks:
+            if used[stock["stock_id"]] >= stock["qty"]:
+                continue
+            if length > stock["usable_in"] + EPS:
+                continue
+            used[stock["stock_id"]] += 1
+            bars_state.append(
+                [stock, max(stock["usable_in"] - length - kerf, 0.0), [unit]]
+            )
+            descend(index + 1)
+            bars_state.pop()
+            used[stock["stock_id"]] -= 1
+        skipped.append(unit)
+        descend(index + 1)
+        skipped.pop()
+
+    try:
+        descend(0)
+    except _SearchBudgetExceeded:
+        return None
+    if state["best"] is None:
+        return None
+    best_bars, best_skipped = state["best"]
+    bars = []
+    for stock, cuts in best_bars:
+        bar = {"stock": stock, "cuts": [], "remaining": stock["usable_in"]}
+        for unit in cuts:
+            _place_on_bar(bar, unit, kerf)
+        bars.append(bar)
+    unplaced_units = prefilter_unplaced + [
+        {**unit, "reason": "stock_exhausted"} for unit in best_skipped
+    ]
+    return bars, unplaced_units, state["best_rank"]
+
+
+def _solve_group(units, group_stock, kerf):
+    """Deterministic strategy portfolio, refined by a bounded exact search.
+
+    Portfolio candidates: the mixed-stock greedy plus each
+    single-stock-length restriction, ranked per ``_rank_solution`` with the
+    strategy name as the final tie-break. Small groups then run a
+    branch-and-bound exact search seeded with the portfolio rank; its result
+    replaces the portfolio's only when strictly better, so the outcome is
+    never worse than the greedy portfolio.
     """
     strategies = [("mixed", group_stock)]
     for stock in group_stock:
         strategies.append((f"single:{stock['stock_id']}", [stock]))
+    cost_priority = all(
+        _ranking_cost(stock) is not None for stock in group_stock
+    )
     best = None
     best_rank = None
     for name, stocks in strategies:
         bars, unplaced = _greedy_pack(units, stocks, kerf, group_stock)
-        total_length = sum(bar["stock"]["length_in"] for bar in bars)
-        purchased = [
-            bar for bar in bars if bar["stock"]["stock_kind"] == "purchasable"
-        ]
-        purchased_length = sum(bar["stock"]["length_in"] for bar in purchased)
-        costs = [_ranking_cost(bar["stock"]) for bar in bars]
-        cost_rank = (
-            round(sum(costs), 2) if None not in costs else math.inf
-        )
         rank = (
-            sum(1 for _ in unplaced),
-            round(purchased_length, 6),
-            cost_rank,
-            len(purchased),
-            round(total_length, 6),
+            *_rank_solution(bars, sum(1 for _ in unplaced), cost_priority),
             name,
         )
         if best_rank is None or rank < best_rank:
             best_rank = rank
             best = (bars, unplaced)
-    return best if best is not None else ([], [])
+    if best is None:
+        return [], []
+    exact = _exact_solve_group(
+        units, group_stock, kerf, best_rank[:5], cost_priority
+    )
+    if exact is not None:
+        exact_bars, exact_unplaced, _ = exact
+        return exact_bars, exact_unplaced
+    return best
 
 
 def run_job(job):

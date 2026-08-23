@@ -15,7 +15,7 @@ It complements `steel-nest` (2D plates). Plates go to `steel-nest`; anything bou
 
 **Reliable:**
 - Exact 1D packing per designation + grade group. Stock never crosses groups: a W12X26 member is only cut from W12X26 stock of the same grade.
-- A deterministic strategy portfolio per group — a mixed-stock greedy plus each single-stock-length restriction — ranked by fewest unplaced members, least purchased stock length (on-hand consumption is free), lowest known purchase cost, fewest purchased bars, then least total length. The same input always produces the same plan.
+- A deterministic strategy portfolio per group — a mixed-stock greedy plus each single-stock-length restriction — refined by a bounded exact branch-and-bound search for small groups (up to 12 pieces) that explores complete and partial placements alike and only ever replaces the portfolio result with a strictly better one. Ranking always minimizes unplaced members first; when every stock entry in the group carries a known cost basis, lowest purchase cost decides next (buying cheaper beats buying shorter), otherwise least purchased stock length decides (on-hand consumption is free). Fewest purchased bars and least total length settle ties. The same input always produces the same plan.
 - Explicit fit contract: usable length = bar length − 2 × end trim; a piece fits when its length alone fits the remainder; each placed piece then consumes its length plus one kerf, saturating at the bar end.
 - Independent post-placement verification (bar overcommitment, material mismatch, duplicate or missing instances) before any cutting list is published.
 - Drops classified against a reusable-candidate threshold (`min_drop_in`) — candidates are never certified reusable stock.
@@ -26,7 +26,7 @@ It complements `steel-nest` (2D plates). Plates go to `steel-nest`; anything bou
 **Deliberately NOT done:**
 - No saw-controller programs or claims of machine-specific compatibility; the cutting list is a shop document that an operator verifies.
 - No remnant-inventory or scrap-market optimization. Drop candidates need a person to measure, identify, and approve before they become stock.
-- No true global optimum guarantee — the portfolio heuristic is strong and deterministic, but it is a heuristic; say so if asked.
+- No global optimum guarantee for large groups — small groups (up to 12 pieces) are solved exactly within a fixed search budget, larger ones fall back to the deterministic portfolio heuristic; say so if asked.
 
 ## Inputs to Gather
 
@@ -85,4 +85,4 @@ The engine writes `rfq_linear.json` — `{schema_version, source_cutlist_result_
 
 **Drop reuse** — output drops are candidates only. Measure, identify, and approve a candidate before supplying it as its own finite stock entry in a later run (a shorter `length_in` entry with `qty: 1`).
 
-**On-hand material first** — enter on-hand bars as finite-quantity stock entries with `"stock_kind": "on_hand"` alongside purchasable lengths. On-hand stock must be finite and carries no cost basis; the portfolio minimizes purchased length first, so sticks are consumed whenever they genuinely reduce buying, and every report labels on-hand rows explicitly.
+**On-hand material first** — enter on-hand bars as finite-quantity stock entries with `"stock_kind": "on_hand"` alongside purchasable lengths. On-hand stock must be finite and carries no cost basis; the optimizer treats on-hand consumption as free (zero cost, zero purchased length), so sticks are consumed whenever they genuinely reduce buying, and every report labels on-hand rows explicitly.

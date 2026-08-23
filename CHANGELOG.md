@@ -4,6 +4,27 @@ All notable changes to `@structupath/pi-steel` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-08-23
+
+### Added
+
+- Bounded exact cut-list optimization: designation + grade groups with up
+  to 12 pieces run a deterministic branch-and-bound search (seeded and
+  bounded by the portfolio result, fixed node budget) that explores
+  complete and partial placements alike and only ever replaces the greedy
+  plan with a strictly better one — including stranding fewer members when
+  finite stock cannot hold everything.
+- `output-contract.md` documents the cut-list artifacts and
+  `cutlist_partial` status; the estimate-package example now includes
+  member items and vendor linear stock.
+
+### Changed
+
+- Ranking now minimizes purchase cost before purchased length when every
+  stock entry in a group carries a known cost basis — buying cheaper beats
+  buying shorter; groups without complete pricing keep the least-purchased-
+  length objective.
+
 ## [0.3.0] - 2026-08-23
 
 ### Added

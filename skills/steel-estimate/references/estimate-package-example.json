@@ -35,6 +35,24 @@
       ]
     },
     {
+      "intent": "fabricated_part",
+      "source_id": "SYNTHETIC-SRC-B1",
+      "item_id": "item:synthetic-example-b1",
+      "quantity": 2,
+      "mark": "B1",
+      "description": "Synthetic wide-flange beam",
+      "grade": "A992",
+      "designation": "W12X26",
+      "length_ft": 12,
+      "unit_weight_plf": 26,
+      "source_evidence": [
+        {
+          "source": "SYNTHETIC-SOURCE-001",
+          "locator": "SYNTHETIC-DETAIL-B1"
+        }
+      ]
+    },
+    {
       "intent": "purchased_stock",
       "source_id": "SYNTHETIC-SRC-S1",
       "item_id": "item:synthetic-example-s1",
@@ -72,6 +90,16 @@
       "thickness": 0.5,
       "quantity": 1,
       "status": "available"
+    },
+    {
+      "stock_kind": "purchasable",
+      "stock_form": "linear",
+      "inventory_id": "SYNTHETIC-VENDOR-W12X26-40",
+      "designation": "W12X26",
+      "grade": "A992",
+      "length_ft": 40,
+      "quantity": 1,
+      "unlimited": true
     }
   ],
   "commercial_basis": {
