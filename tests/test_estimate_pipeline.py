@@ -480,6 +480,7 @@ def test_member_without_grade_is_excluded_from_cutlist_not_blocked(tmp_path):
     }
     assert "W1" not in marks
     assert "HSS1" in marks
+    assert not (run_path / "cutting_list.csv").exists()
 
 
 def test_nonfinite_mill_lengths_fail_as_usage_error(tmp_path):

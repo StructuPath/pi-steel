@@ -980,7 +980,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
             publisher.write_json(
                 "rfq-linear.json", linear_handoff, readiness="diagnostic"
             )
-            if cutlist_result["outcome"] == "ready":
+            if cutlist_result["outcome"] == "ready" and outcome == "ready":
                 publisher.write_bytes(
                     "cutting_list.csv",
                     cutlist_engine.render_cutting_list_csv(
