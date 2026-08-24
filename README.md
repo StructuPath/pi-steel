@@ -65,6 +65,8 @@ polygon outline for exact areas, weights, hole checks, and drawn profiles; they
 are placed by bounding box, always flagged, and then compacted along their true
 profiles in fixed scan-to-first-contact steps — every compacted plate must pass
 an independent polygon-clearance verifier or the bounding-box layout is kept.
+Compaction also runs before a new sheet is opened or a part is stranded, so
+recovered plate becomes fewer purchased sheets, never just a bigger remnant.
 
 Per-sheet `burn_plate_N.dxf` files are emitted only when the full nest is
 complete and every supported hole remains inside its part. Otherwise, pi-steel
