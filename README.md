@@ -149,7 +149,8 @@ npm run provenance:check # shape-data integrity and recorded decision
 npm run release:check    # complete release gate
 ```
 
-The current package version is `0.4.0`. `release:check` verifies the test,
+The current package version is declared in `package.json` and recorded per
+release in `CHANGELOG.md`. `release:check` verifies the test,
 privacy, package-content, shape-data integrity, ownership, license, and
 redistribution contracts before publication.
 
