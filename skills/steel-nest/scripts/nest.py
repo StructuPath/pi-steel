@@ -86,7 +86,7 @@ from pi_steel.geometry_verify import (  # noqa: E402
 )
 
 STEEL_DENSITY = 0.2836  # lb/in^3, A36 mild steel
-NEST_ALGORITHM_VERSION = "maxrects-bssf-u3-tsc1"
+NEST_ALGORITHM_VERSION = "maxrects-bssf-u3-tsc2"
 COMPACTION_STEP_IN = 0.03125  # fixed 1/32-in scan resolution
 COMPACTION_MAX_PASSES = 8
 
@@ -337,6 +337,72 @@ def _slide_steps(placement, axis, local_profile, others, clearance):
             break
         steps += 1
     return min(steps, max_steps)
+
+
+def _compaction_eligible(plate):
+    """Whether every irregular part on the plate carries a validated outline."""
+    irregular = [
+        placement
+        for placement in plate["placements"]
+        if placement.shape == "irregular"
+    ]
+    return bool(irregular) and all(
+        len(placement.outline) >= 3 for placement in irregular
+    )
+
+
+def _attempt_plate_compaction(plate, plate_index, spacing, margin, findings):
+    """Compact one plate behind the independent verification gate.
+
+    Returns True only when an accepted compaction changed the layout (and
+    the free rectangles were rebuilt from the compacted bounding boxes).
+    A rejected compaction restores the previous layout, records the
+    non-blocking finding, and disqualifies the plate from further attempts.
+    """
+    placements = plate["placements"]
+    snapshot = [(placement.x, placement.y) for placement in placements]
+    recovered, passes = compact_placements(placements, spacing)
+    record = plate["compaction"]
+    record["ran"] = True
+    record["passes"] += passes
+    plate["compaction_dirty"] = False
+    if recovered <= 0.0:
+        return False
+    stock = plate["stock"]
+    gate_findings = verify_true_shape_placements(
+        [vars(placement) for placement in placements],
+        usable_width=stock["W"] - 2 * margin,
+        usable_height=stock["H"] - 2 * margin,
+        clearance=spacing,
+    )
+    if gate_findings:
+        for placement, (x, y) in zip(placements, snapshot):
+            placement.x, placement.y = x, y
+        plate["compaction_disqualified"] = True
+        findings.append(
+            {
+                "code": "COMPACTION_REJECTED",
+                "severity": "warning",
+                "path": f"$.plate_reports[{plate_index}]",
+                "message": (
+                    "True-shape compaction failed independent "
+                    "verification; the bounding-box layout was kept."
+                ),
+            }
+        )
+        return False
+    record["accepted"] = True
+    record["recovered_in"] = round(record["recovered_in"] + recovered, 6)
+    # Free rectangles are rebuilt from the compacted bounding boxes so
+    # refill and remnant candidates never claim space a moved part now
+    # occupies; anything later placed in them keeps bounding-box clearance.
+    rebuilt = MaxRectsBin(plate["bin"].width, plate["bin"].height)
+    for placement in placements:
+        rebuilt._place_and_split(
+            placement.x, placement.y, placement.w + spacing, placement.h + spacing
+        )
+    plate["bin"] = rebuilt
+    return True
 
 
 def compact_placements(placements, clearance):
@@ -927,6 +993,14 @@ def run_job(job, compact_outlines=True):
                 "stock": stock,
                 "bin": MaxRectsBin(usable_width + spacing, usable_height + spacing),
                 "placements": [],
+                "compaction": {
+                    "ran": False,
+                    "accepted": False,
+                    "recovered_in": 0.0,
+                    "passes": 0,
+                },
+                "compaction_dirty": False,
+                "compaction_disqualified": False,
             }
             plates.append(plate)
             return plate
@@ -960,6 +1034,7 @@ def run_job(job, compact_outlines=True):
                 thickness=unit["thickness"],
             )
         )
+        plate["compaction_dirty"] = True
 
     unplaced_units = []
     for unit in units:
@@ -981,6 +1056,29 @@ def run_job(job, compact_outlines=True):
                 commit(plate, unit, placement)
                 placed = True
                 break
+        if not placed and compact_outlines:
+            # Compaction-aware refill: before opening a new sheet (or
+            # stranding the part), compact eligible plates that changed
+            # since their last attempt and offer the recovered free
+            # rectangles back to the packer.
+            for plate_index, plate in enumerate(plates):
+                if not compatible(plate["stock"], unit):
+                    continue
+                if plate["compaction_disqualified"] or not plate["compaction_dirty"]:
+                    continue
+                if not _compaction_eligible(plate):
+                    continue
+                if not _attempt_plate_compaction(
+                    plate, plate_index, spacing, margin, validation_findings
+                ):
+                    continue
+                placement = plate["bin"].insert(
+                    packed_width, packed_height, unit["rotatable"]
+                )
+                if placement:
+                    commit(plate, unit, placement)
+                    placed = True
+                    break
         if not placed:
             plate = open_plate(unit)
             if plate is not None:
@@ -996,70 +1094,16 @@ def run_job(job, compact_outlines=True):
     used_plates = [plate for plate in plates if plate["placements"]]
     for index, plate in enumerate(used_plates, 1):
         plate["index"] = index
-        plate["compaction"] = {
-            "ran": False,
-            "accepted": False,
-            "recovered_in": 0.0,
-            "passes": 0,
-        }
     if compact_outlines:
-        for plate in used_plates:
-            placements = plate["placements"]
-            irregular = [
-                placement
-                for placement in placements
-                if placement.shape == "irregular"
-            ]
-            if not irregular or any(
-                len(placement.outline) < 3 for placement in irregular
+        for plate_index, plate in enumerate(used_plates):
+            if (
+                plate["compaction_dirty"]
+                and not plate["compaction_disqualified"]
+                and _compaction_eligible(plate)
             ):
-                continue
-            snapshot = [(placement.x, placement.y) for placement in placements]
-            recovered, passes = compact_placements(placements, spacing)
-            if recovered <= 0.0:
-                plate["compaction"].update({"ran": True, "passes": passes})
-                continue
-            stock = plate["stock"]
-            gate_findings = verify_true_shape_placements(
-                [vars(placement) for placement in placements],
-                usable_width=stock["W"] - 2 * margin,
-                usable_height=stock["H"] - 2 * margin,
-                clearance=spacing,
-            )
-            if gate_findings:
-                for placement, (x, y) in zip(placements, snapshot):
-                    placement.x, placement.y = x, y
-                plate["compaction"].update({"ran": True, "passes": passes})
-                validation_findings.append(
-                    {
-                        "code": "COMPACTION_REJECTED",
-                        "severity": "warning",
-                        "path": f"$.plate_reports[{plate['index'] - 1}]",
-                        "message": (
-                            "True-shape compaction failed independent "
-                            "verification; the bounding-box layout was kept."
-                        ),
-                    }
+                _attempt_plate_compaction(
+                    plate, plate_index, spacing, margin, validation_findings
                 )
-                continue
-            plate["compaction"] = {
-                "ran": True,
-                "accepted": True,
-                "recovered_in": round(recovered, 6),
-                "passes": passes,
-            }
-            # Free rectangles are rebuilt from the compacted bounding boxes
-            # so remnant candidates never claim space a moved part now
-            # occupies; they stay rectangle-based and unverified.
-            rebuilt = MaxRectsBin(plate["bin"].width, plate["bin"].height)
-            for placement in placements:
-                rebuilt._place_and_split(
-                    placement.x,
-                    placement.y,
-                    placement.w + spacing,
-                    placement.h + spacing,
-                )
-            plate["bin"] = rebuilt
     return _summarize(
         normalized,
         used_plates,
