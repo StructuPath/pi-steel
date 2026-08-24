@@ -4,6 +4,28 @@ All notable changes to `@structupath/pi-steel` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-24
+
+### Added
+
+- Verified true-shape compaction for outlined irregular parts: after
+  MaxRects bounding-box packing, placements slide left-then-down in
+  fixed 1/32-in scan-to-first-contact steps until their true profiles
+  (not their boxes) reach the kerf-plus-gap clearance, so complementary
+  profiles interlock and recover plate. Every compacted plate is
+  re-checked by an independent polygon-clearance verifier that rebuilds
+  profiles from the published placement data alone; any failure discards
+  compaction for that plate with a non-blocking `COMPACTION_REJECTED`
+  finding and keeps the proven bounding-box layout. Plate reports record
+  `compaction` (`ran`, `accepted`, `recovered_in`, `passes`), remnant
+  candidates are rebuilt from the compacted bounding boxes (still
+  rectangle-based and uncertified), and a `true_shape_utilization_pct`
+  metric reports exact profile area on plates whose irregular parts all
+  carry validated outlines. Enabled by default in the direct engine and
+  the estimate pipeline; `--no-compact-outlines` opts out, and the choice
+  is captured in the configuration hash. Burn-DXF eligibility and the
+  review-required posture for irregular parts are unchanged.
+
 ## [0.4.0] - 2026-08-23
 
 ### Added

@@ -20,7 +20,8 @@ Be honest with the user about the boundary — it protects the shop from over-tr
 - Multiple compatible plate sizes with independently verified bounds, non-overlap, and material grouping.
 - Explicit clearance ownership: edge margin is the plate-to-part keep-out; kerf plus part gap is the minimum edge-to-edge clearance between parts. No trailing kerf/gap is required at the usable plate boundary.
 - **Holes and rectangular cutouts** on verified rectangular parts — subtracted from weight/cost, rotated with the part, and emitted as cut geometry only when the complete job passes the output gate.
-- Separate packing-utilization and net-material-yield percentages with approximation labels.
+- **Verified true-shape compaction** for outlined irregular parts: after bounding-box packing, parts slide left-then-down in fixed 1/32-in scan-to-first-contact steps until their true profiles (not their boxes) reach the kerf-plus-gap clearance, letting complementary profiles interlock. Every compacted plate is re-checked by an independent polygon-clearance verifier that rebuilds profiles from the published placements; a failed check discards compaction for that plate (`COMPACTION_REJECTED` warning) and keeps the proven bounding-box layout. Per-plate results are recorded under `compaction` (`ran`, `accepted`, `recovered_in`, `passes`). Disable with `--no-compact-outlines`.
+- Separate packing-utilization and net-material-yield percentages with approximation labels, plus `true_shape_utilization_pct` (exact profile area over plate area) on plates whose irregular parts all carry validated outlines.
 - Remnant candidates per plate, explicitly not certified reusable drops.
 - Material weight and optional cost by one explicit basis per stock entry (`cost_per_lb` or `cost_per_sheet`, never both).
 - Labeled layout (PDF + one PNG per plate).
@@ -28,7 +29,7 @@ Be honest with the user about the boundary — it protects the shop from over-tr
 - **Guarded cut-geometry files**: one DXF per sheet (`burn_plate_N.dxf`) containing only closed part outlines on `PROFILE` and holes/cutouts on `HOLES`, with origin at the sheet corner. They exist only when every part is rectangular, every required part fits, and every supported hole stays inside its part.
 
 **Approximate — always flag it:**
-- **Irregular parts** (gussets, brackets, curved profiles, parts with holes) are nested by their **bounding box**, not true shape. Real yield is a little better than reported. For exact weight/cost, give the part an `outline` — a list of `[x, y]` vertices tracing the true profile in the part's local frame (bounding box spanning `0..width` × `0..height`, simple polygon, no crossing edges). The engine then computes the exact shoelace area (`outline_exact`), checks that holes stay inside the true profile (not just the box), and draws the real outline in layouts and reference DXFs. Without an outline, supply the true cut area (in²) in `area`, or the bounding box is used as an estimate. Placement is still by bounding box — this is NOT true-shape nesting like a dedicated CAM engine.
+- **Irregular parts** (gussets, brackets, curved profiles, parts with holes) are nested by their **bounding box**, not true shape. Real yield is a little better than reported. For exact weight/cost, give the part an `outline` — a list of `[x, y]` vertices tracing the true profile in the part's local frame (bounding box spanning `0..width` × `0..height`, simple polygon, no crossing edges). The engine then computes the exact shoelace area (`outline_exact`), checks that holes stay inside the true profile (not just the box), draws the real outline in layouts and reference DXFs, and recovers plate through the verified compaction pass above. Without an outline, supply the true cut area (in²) in `area`, or the bounding box is used as an estimate. Initial placement is still by bounding box and compaction only slides parts along fixed axes — this is NOT free-rotation no-fit-polygon nesting like a dedicated CAM engine, and remnant candidates stay rectangle-based and uncertified.
 - Any irregular part suppresses all fabrication-style DXFs for that job. The remaining PDF, PNG, report, JSON, and `reference_nest.dxf` outputs are estimating aids, not cutting instructions.
 
 **Do NOT pretend to do:**
@@ -69,6 +70,8 @@ current after a blocked rerun.
 
 Use `--geometry-verified-only` when reference-only geometry does not satisfy the
 request. The command still publishes its QA diagnostics, but exits unsuccessfully.
+Use `--no-compact-outlines` to keep pure bounding-box layouts (skip the verified
+true-shape compaction pass); the flag is recorded in the configuration hash.
 
 Each run contains:
 

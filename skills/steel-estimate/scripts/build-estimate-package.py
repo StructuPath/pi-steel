@@ -639,7 +639,10 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
             density_lb_in3=args.density_lb_in3,
         )
         if nest_job is not None:
-            nest_result = nest_engine.run_job(nest_job)
+            nest_result = nest_engine.run_job(
+                nest_job,
+                compact_outlines=not getattr(args, "no_compact_outlines", False),
+            )
             for nest_finding in nest_result["validation_findings"]:
                 findings.append(
                     _finding(
@@ -860,6 +863,7 @@ def build_pipeline(args) -> tuple[dict[str, Any], Path]:
         "part_gap_in": args.part_gap_in,
         "edge_margin_in": args.edge_margin_in,
         "density_lb_in3": args.density_lb_in3,
+        "compact_outlines": not getattr(args, "no_compact_outlines", False),
         "mill_lengths_ft": mill_lengths,
         "cutlist_kerf_in": args.cutlist_kerf_in,
         "end_trim_in": args.end_trim_in,
@@ -1117,6 +1121,11 @@ def main(argv=None) -> int:
         "--mill-lengths-ft",
         default="40,50,60",
         help="Comma-separated purchasable mill lengths for member cut-lists",
+    )
+    parser.add_argument(
+        "--no-compact-outlines",
+        action="store_true",
+        help="Keep pure bounding-box nest layouts (skip verified compaction)",
     )
     parser.add_argument("--cutlist-kerf-in", type=float, default=0.125)
     parser.add_argument("--end-trim-in", type=float, default=0.25)

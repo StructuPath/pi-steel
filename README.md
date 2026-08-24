@@ -62,7 +62,9 @@ does not invent pricing.
 `steel-nest` uses MaxRects bin packing for rectangular parts and reports yield,
 scrap, reusable drops, and unplaced material. Irregular parts may carry a true
 polygon outline for exact areas, weights, hole checks, and drawn profiles; they
-are placed by bounding box and always flagged.
+are placed by bounding box, always flagged, and then compacted along their true
+profiles in fixed scan-to-first-contact steps — every compacted plate must pass
+an independent polygon-clearance verifier or the bounding-box layout is kept.
 
 Per-sheet `burn_plate_N.dxf` files are emitted only when the full nest is
 complete and every supported hole remains inside its part. Otherwise, pi-steel
@@ -147,7 +149,8 @@ npm run provenance:check # shape-data integrity and recorded decision
 npm run release:check    # complete release gate
 ```
 
-The current package version is `0.4.0`. `release:check` verifies the test,
+The current package version is declared in `package.json` and recorded per
+release in `CHANGELOG.md`. `release:check` verifies the test,
 privacy, package-content, shape-data integrity, ownership, license, and
 redistribution contracts before publication.
 

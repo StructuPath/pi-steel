@@ -323,6 +323,117 @@ def polygon_within_rect(
     )
 
 
+TRUE_SHAPE_EPSILON = 1e-6
+
+
+def placed_profile(placement: dict[str, Any]) -> list[tuple[float, float]] | None:
+    """True profile of one placement in plate coordinates.
+
+    Rebuilt from published placement data alone (outline, rotation flag,
+    original height, position) so verification never trusts a packing or
+    compaction algorithm's internal bookkeeping. Rotation follows the
+    placement contract: a rotated part maps local (x, y) to (oh - y, x).
+    """
+    outline = placement.get("outline")
+    if (
+        placement.get("shape") == "irregular"
+        and isinstance(outline, list)
+        and len(outline) >= 3
+    ):
+        if not all(_finite_point(point) for point in outline):
+            return None
+        if placement.get("rotated"):
+            oh = placement.get("oh")
+            if not isinstance(oh, (int, float)) or isinstance(oh, bool) or not math.isfinite(oh):
+                return None
+            local = [(oh - point[1], point[0]) for point in outline]
+        else:
+            local = [(point[0], point[1]) for point in outline]
+    else:
+        width, height = placement["w"], placement["h"]
+        local = [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+    x, y = placement["x"], placement["y"]
+    return [(x + px, y + py) for px, py in local]
+
+
+def verify_true_shape_placements(
+    placements: list[dict[str, Any]],
+    *,
+    usable_width: float,
+    usable_height: float,
+    clearance: float,
+    path_prefix: str = "$",
+) -> list[dict[str, Any]]:
+    """Independently verify true-profile clearance on one plate.
+
+    Profiles are rebuilt from published placement data via placed_profile.
+    Pairs whose bounding boxes keep the clearance on either axis are
+    provably safe, so exact polygon distances run only on the remaining
+    candidate pairs.
+    """
+    findings: list[dict[str, Any]] = []
+    profiles: dict[int, list[tuple[float, float]]] = {}
+    for index, placement in enumerate(placements):
+        path = f"{path_prefix}.placements[{index}]"
+        if not _finite_placement_values(placement):
+            findings.append(
+                {
+                    "code": "nonfinite_placement",
+                    "path": path,
+                    "message": "Placement coordinates and dimensions must be finite.",
+                }
+            )
+            continue
+        profile = placed_profile(placement)
+        if profile is None:
+            findings.append(
+                {
+                    "code": "invalid_profile",
+                    "path": path,
+                    "message": (
+                        "Placement profile could not be rebuilt for "
+                        "true-shape verification."
+                    ),
+                }
+            )
+            continue
+        profiles[index] = profile
+        if not polygon_within_rect(profile, usable_width, usable_height):
+            findings.append(
+                {
+                    "code": "true_shape_out_of_bounds",
+                    "path": path,
+                    "message": (
+                        "True profile must remain inside the edge-margin "
+                        "boundary."
+                    ),
+                }
+            )
+    for first_index, second_index in _overlap_candidate_pairs(
+        placements, clearance, TRUE_SHAPE_EPSILON
+    ):
+        if first_index not in profiles or second_index not in profiles:
+            continue
+        distance = polygon_min_distance(
+            profiles[first_index], profiles[second_index]
+        )
+        if distance < clearance - TRUE_SHAPE_EPSILON:
+            findings.append(
+                {
+                    "code": "true_shape_clearance_violation",
+                    "path": (
+                        f"{path_prefix}.placements"
+                        f"[{first_index},{second_index}]"
+                    ),
+                    "message": (
+                        "True profiles overlap or violate the required "
+                        "kerf-plus-gap clearance."
+                    ),
+                }
+            )
+    return findings
+
+
 def gross_area(geometry: dict[str, Any]) -> float:
     if geometry.get("shape") == "irregular":
         outline = geometry.get("outline")
@@ -504,6 +615,20 @@ def verify_nest_placements(
                     }
                 )
 
+        if (plate.get("compaction") or {}).get("accepted"):
+            # Compacted plates interlock true profiles, so bounding boxes
+            # may legitimately come closer than the clearance; the pairwise
+            # contract is enforced on the rebuilt profiles instead.
+            findings.extend(
+                verify_true_shape_placements(
+                    placements,
+                    usable_width=usable_width,
+                    usable_height=usable_height,
+                    clearance=inter_part_clearance,
+                    path_prefix=f"$.plate_reports[{plate_index}]",
+                )
+            )
+            continue
         for first_index, second_index in _overlap_candidate_pairs(
             placements, inter_part_clearance, epsilon
         ):

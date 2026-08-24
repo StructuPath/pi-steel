@@ -83,7 +83,8 @@
         "part_gap_in": { "type": "number", "minimum": 0 },
         "edge_margin_in": { "type": "number", "minimum": 0 },
         "density_lb_in3": { "type": "number", "exclusiveMinimum": 0 },
-        "unit_system": { "type": "string" }
+        "unit_system": { "type": "string" },
+        "compact_outlines": { "type": "boolean" }
       },
       "additionalProperties": false
     },
@@ -125,7 +126,8 @@
       "required": ["packing_utilization_pct", "net_material_yield_pct"],
       "properties": {
         "packing_utilization_pct": { "$ref": "#/$defs/metric" },
-        "net_material_yield_pct": { "$ref": "#/$defs/metric" }
+        "net_material_yield_pct": { "$ref": "#/$defs/metric" },
+        "true_shape_utilization_pct": { "$ref": "#/$defs/metric" }
       },
       "additionalProperties": false
     },
@@ -366,6 +368,18 @@
           "type": "array",
           "items": { "$ref": "#/$defs/remnantCandidate" }
         },
+        "compaction": {
+          "type": "object",
+          "required": ["ran", "accepted", "recovered_in", "passes"],
+          "properties": {
+            "ran": { "type": "boolean" },
+            "accepted": { "type": "boolean" },
+            "recovered_in": { "type": "number", "minimum": 0 },
+            "passes": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "true_shape_utilization_pct": { "$ref": "#/$defs/metric" },
         "placements": {
           "type": "array",
           "items": { "$ref": "#/$defs/placement" }
