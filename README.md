@@ -62,7 +62,9 @@ does not invent pricing.
 `steel-nest` uses MaxRects bin packing for rectangular parts and reports yield,
 scrap, reusable drops, and unplaced material. Irregular parts may carry a true
 polygon outline for exact areas, weights, hole checks, and drawn profiles; they
-are placed by bounding box and always flagged.
+are placed by bounding box, always flagged, and then compacted along their true
+profiles in fixed scan-to-first-contact steps — every compacted plate must pass
+an independent polygon-clearance verifier or the bounding-box layout is kept.
 
 Per-sheet `burn_plate_N.dxf` files are emitted only when the full nest is
 complete and every supported hole remains inside its part. Otherwise, pi-steel

@@ -21,9 +21,16 @@ Reliable:
                               every part is rectangular, every required part
                               fits, and supported holes stay inside the part.
 
+  * Verified true-shape compaction: outlined irregular parts slide
+    left-then-down in fixed 1/32-in scan-to-first-contact steps until
+    their true profiles reach kerf+gap clearance, and an independent
+    polygon-clearance verifier gates every compacted plate (rejection
+    keeps the proven bounding-box layout).
+
 Deliberately NOT done:
-  * True-shape nesting of irregular parts (they nest by BOUNDING BOX,
-    clearly flagged). Supply a part `area` for exact weight on those.
+  * Free-rotation / no-fit-polygon nesting (initial placement is by
+    BOUNDING BOX, clearly flagged; compaction only slides along axes).
+    Supply an `outline` or `area` per irregular part for exact weight.
   * Machine-ready G-code / NC with kerf comp, pierce points and lead-ins
     for a specific controller. The burn-table DXF is an import file; the
     machine's own CAM/post applies those (that is where they belong).
@@ -72,12 +79,16 @@ from pi_steel.geometry_verify import (  # noqa: E402
     hole_within_bounds,
     hole_within_outline,
     polygon_area,
+    polygon_min_distance,
     validate_outline,
     verify_nest_placements,
+    verify_true_shape_placements,
 )
 
 STEEL_DENSITY = 0.2836  # lb/in^3, A36 mild steel
-NEST_ALGORITHM_VERSION = "maxrects-bssf-u3"
+NEST_ALGORITHM_VERSION = "maxrects-bssf-u3-tsc1"
+COMPACTION_STEP_IN = 0.03125  # fixed 1/32-in scan resolution
+COMPACTION_MAX_PASSES = 8
 
 
 _valid_hash = is_sha256
@@ -240,6 +251,146 @@ def outline_local(pc, outline):
     if pc["rotated"]:
         return [(pc["oh"] - y, x) for x, y in outline]
     return [(x, y) for x, y in outline]
+
+
+# --------------------------------------------------------------------------
+# True-shape compaction (post-placement, verified before acceptance)
+# --------------------------------------------------------------------------
+def _profile_local(placement):
+    """Placed-frame profile vertices (before translation) for a placement."""
+    if placement.shape == "irregular" and placement.outline:
+        return outline_local(vars(placement), placement.outline)
+    return [
+        (0.0, 0.0),
+        (placement.w, 0.0),
+        (placement.w, placement.h),
+        (0.0, placement.h),
+    ]
+
+
+def _slide_steps(placement, axis, local_profile, others, clearance):
+    """Fixed steps the placement slides toward zero along one axis.
+
+    Scan-to-first-contact: clearance along a slide is not monotonic for
+    concave profiles (a notch can make an offset clear, then blocked, then
+    clear again), so the scan advances the fixed step and stops one step
+    before the first offset that violates the clearance. Bounding-box gaps
+    only skip offsets that are provably clear: a neighbor separated by the
+    clearance on the cross axis can never be violated, and a neighbor
+    fully ahead of the slide direction only recedes because the current
+    position already satisfies the clearance.
+    """
+    step = COMPACTION_STEP_IN
+    if axis == "x":
+        position, extent = placement.x, placement.w
+        cross_low, cross_high = placement.y, placement.y + placement.h
+    else:
+        position, extent = placement.y, placement.h
+        cross_low, cross_high = placement.x, placement.x + placement.w
+    max_steps = int(math.floor((position + 1e-9) / step))
+    if max_steps <= 0:
+        return 0
+
+    relevant = []
+    for other, profile in others:
+        if axis == "x":
+            other_low, other_high = other.x, other.x + other.w
+            other_cross_low, other_cross_high = other.y, other.y + other.h
+        else:
+            other_low, other_high = other.y, other.y + other.h
+            other_cross_low, other_cross_high = other.x, other.x + other.w
+        if (
+            other_cross_high + clearance <= cross_low
+            or cross_high + clearance <= other_cross_low
+        ):
+            continue
+        if other_low >= position + extent:
+            continue
+        relevant.append((other_high, profile))
+
+    steps = 0
+    while steps < max_steps:
+        candidate = position - (steps + 1) * step
+        limit = max_steps - steps
+        exact = []
+        for other_high, profile in relevant:
+            gap = candidate - other_high
+            if gap >= clearance:
+                limit = min(limit, 1 + int((gap - clearance) / step))
+            else:
+                exact.append(profile)
+        if not exact:
+            steps += limit
+            continue
+        if axis == "x":
+            candidate_profile = [
+                (px + candidate, py + placement.y) for px, py in local_profile
+            ]
+        else:
+            candidate_profile = [
+                (px + placement.x, py + candidate) for px, py in local_profile
+            ]
+        if any(
+            polygon_min_distance(candidate_profile, profile) < clearance - 1e-9
+            for profile in exact
+        ):
+            break
+        steps += 1
+    return min(steps, max_steps)
+
+
+def compact_placements(placements, clearance):
+    """Deterministic left-then-down true-shape compaction of one plate.
+
+    Mutates placement coordinates in place and returns (recovered_in,
+    passes); callers snapshot the coordinates and only accept the moves
+    after independent verification.
+    """
+    local_profiles = [_profile_local(placement) for placement in placements]
+    recovered = 0.0
+    passes = 0
+    while passes < COMPACTION_MAX_PASSES:
+        passes += 1
+        moved = False
+        order = sorted(
+            range(len(placements)),
+            key=lambda index: (
+                placements[index].x,
+                placements[index].y,
+                placements[index].placement_id,
+            ),
+        )
+        for index in order:
+            placement = placements[index]
+            others = [
+                (
+                    placements[other_index],
+                    [
+                        (
+                            px + placements[other_index].x,
+                            py + placements[other_index].y,
+                        )
+                        for px, py in local_profiles[other_index]
+                    ],
+                )
+                for other_index in range(len(placements))
+                if other_index != index
+            ]
+            for axis in ("x", "y"):
+                steps = _slide_steps(
+                    placement, axis, local_profiles[index], others, clearance
+                )
+                if steps:
+                    distance = steps * COMPACTION_STEP_IN
+                    if axis == "x":
+                        placement.x = max(0.0, placement.x - distance)
+                    else:
+                        placement.y = max(0.0, placement.y - distance)
+                    recovered += distance
+                    moved = True
+        if not moved:
+            break
+    return recovered, passes
 
 
 # --------------------------------------------------------------------------
@@ -707,7 +858,7 @@ def _aggregate_unplaced(units):
     return sorted(grouped.values(), key=lambda row: (row["item_id"], row["reason"]))
 
 
-def run_job(job):
+def run_job(job, compact_outlines=True):
     normalized, stock_types, validation_findings = normalize_job(job)
     settings = normalized["settings"]
     kerf = settings["kerf_in"]
@@ -732,6 +883,7 @@ def run_job(job):
             gap,
             validation_findings,
             normalized_hash,
+            compact_outlines,
         )
 
     units = []
@@ -844,6 +996,70 @@ def run_job(job):
     used_plates = [plate for plate in plates if plate["placements"]]
     for index, plate in enumerate(used_plates, 1):
         plate["index"] = index
+        plate["compaction"] = {
+            "ran": False,
+            "accepted": False,
+            "recovered_in": 0.0,
+            "passes": 0,
+        }
+    if compact_outlines:
+        for plate in used_plates:
+            placements = plate["placements"]
+            irregular = [
+                placement
+                for placement in placements
+                if placement.shape == "irregular"
+            ]
+            if not irregular or any(
+                len(placement.outline) < 3 for placement in irregular
+            ):
+                continue
+            snapshot = [(placement.x, placement.y) for placement in placements]
+            recovered, passes = compact_placements(placements, spacing)
+            if recovered <= 0.0:
+                plate["compaction"].update({"ran": True, "passes": passes})
+                continue
+            stock = plate["stock"]
+            gate_findings = verify_true_shape_placements(
+                [vars(placement) for placement in placements],
+                usable_width=stock["W"] - 2 * margin,
+                usable_height=stock["H"] - 2 * margin,
+                clearance=spacing,
+            )
+            if gate_findings:
+                for placement, (x, y) in zip(placements, snapshot):
+                    placement.x, placement.y = x, y
+                plate["compaction"].update({"ran": True, "passes": passes})
+                validation_findings.append(
+                    {
+                        "code": "COMPACTION_REJECTED",
+                        "severity": "warning",
+                        "path": f"$.plate_reports[{plate['index'] - 1}]",
+                        "message": (
+                            "True-shape compaction failed independent "
+                            "verification; the bounding-box layout was kept."
+                        ),
+                    }
+                )
+                continue
+            plate["compaction"] = {
+                "ran": True,
+                "accepted": True,
+                "recovered_in": round(recovered, 6),
+                "passes": passes,
+            }
+            # Free rectangles are rebuilt from the compacted bounding boxes
+            # so remnant candidates never claim space a moved part now
+            # occupies; they stay rectangle-based and unverified.
+            rebuilt = MaxRectsBin(plate["bin"].width, plate["bin"].height)
+            for placement in placements:
+                rebuilt._place_and_split(
+                    placement.x,
+                    placement.y,
+                    placement.w + spacing,
+                    placement.h + spacing,
+                )
+            plate["bin"] = rebuilt
     return _summarize(
         normalized,
         used_plates,
@@ -854,6 +1070,7 @@ def run_job(job):
         gap,
         validation_findings,
         normalized_hash,
+        compact_outlines,
     )
 
 
@@ -901,10 +1118,14 @@ def _summarize(
     gap,
     validation_findings,
     normalized_hash,
+    compact_outlines,
 ):
     estimate_input_hash = normalized.get("estimate_input_hash") or normalized_hash
     plate_reports = []
     total_plate_area = total_packing_area = total_net_area = 0.0
+    total_true_area = 0.0
+    all_plates_true_shape = bool(used_plates)
+    any_placed_irregular = False
     total_plate_weight = total_part_weight = 0.0
     total_cost = 0.0
     all_used_costs_known = bool(used_plates)
@@ -985,8 +1206,32 @@ def _summarize(
             "plate_cost": None if plate_cost is None else round(plate_cost, 2),
             "cost_basis": cost_basis,
             "remnant_candidates": _remnant_candidates(plate, margin, kerf + gap),
+            "compaction": plate.get(
+                "compaction",
+                {"ran": False, "accepted": False, "recovered_in": 0.0, "passes": 0},
+            ),
             "placements": [vars(placement) for placement in plate["placements"]],
         }
+        plate_irregular = [
+            placement
+            for placement in plate["placements"]
+            if placement.shape == "irregular"
+        ]
+        if all(len(placement.outline) >= 3 for placement in plate_irregular):
+            true_area = sum(
+                polygon_area(placement.outline)
+                if placement.shape == "irregular"
+                else placement.w * placement.h
+                for placement in plate["placements"]
+            )
+            report["true_shape_utilization_pct"] = _metric(
+                100 * true_area / plate_area,
+                "outline_exact" if plate_irregular else "exact",
+            )
+            total_true_area += true_area
+            any_placed_irregular = any_placed_irregular or bool(plate_irregular)
+        else:
+            all_plates_true_shape = False
         plate_reports.append(report)
         total_plate_area += plate_area
         total_packing_area += packing_area
@@ -1012,6 +1257,11 @@ def _summarize(
             net_status,
         ),
     }
+    if all_plates_true_shape:
+        metrics["true_shape_utilization_pct"] = _metric(
+            100 * total_true_area / total_plate_area if total_plate_area else 0,
+            "outline_exact" if any_placed_irregular else "exact",
+        )
     verification_findings = verify_nest_placements(
         plate_reports,
         edge_margin=margin,
@@ -1087,6 +1337,11 @@ def _summarize(
                 "algorithm_version": NEST_ALGORITHM_VERSION,
                 "settings": normalized["settings"],
                 "clearance_contract": "edge-margin-and-inter-part-v1",
+                "compaction": {
+                    "enabled": bool(compact_outlines),
+                    "step_in": COMPACTION_STEP_IN,
+                    "max_passes": COMPACTION_MAX_PASSES,
+                },
             }
         )
     )
@@ -1108,6 +1363,7 @@ def _summarize(
             "edge_margin_in": margin,
             "density_lb_in3": density,
             "unit_system": normalized["unit_system"],
+            "compact_outlines": bool(compact_outlines),
         },
         "clearance_contract": {
             "edge_margin_ownership": "plate_to_part",
@@ -1252,6 +1508,12 @@ def render_text(res):
         f"  Net material yield .... {net_yield['value']}% "
         f"({net_yield['approximation']})"
     )
+    true_shape = res["metrics"].get("true_shape_utilization_pct")
+    if true_shape is not None:
+        L.append(
+            f"  True-shape claimed .... {true_shape['value']}% "
+            f"({true_shape['approximation']})"
+        )
     L.append(f"  Holes / cutouts ........ {res['total_holes']}")
     L.append(f"  Total plate weight ..... {res['total_plate_weight_lb']} lb")
     L.append(f"  Net part weight ........ {res['total_part_weight_lb']} lb  (holes removed)")
@@ -1275,6 +1537,13 @@ def render_text(res):
         )
         if pr["plate_cost"] is not None:
             L.append(f"    Cost:    ${pr['plate_cost']:,.2f}")
+        compaction = pr.get("compaction") or {}
+        if compaction.get("accepted"):
+            L.append(
+                "    Compacted: true-shape slide recovered "
+                f"{_fmt(compaction['recovered_in'])} in "
+                f"({compaction['passes']} pass(es), independently verified)"
+            )
         if pr["remnant_candidates"]:
             candidate = pr["remnant_candidates"][0]
             L.append(
@@ -1569,7 +1838,8 @@ def missing_render_dependencies():
 
 def publish_nest_run(job, args):
     """Run a legacy nest job and publish one isolated, manifested artifact set."""
-    result = run_job(job)
+    compact_outlines = not getattr(args, "no_compact_outlines", False)
+    result = run_job(job, compact_outlines=compact_outlines)
     missing_dependencies = [] if args.no_render else missing_render_dependencies()
     if missing_dependencies:
         outcome = "dependency_missing"
@@ -1596,6 +1866,7 @@ def publish_nest_run(job, args):
         "engine_configuration_hash": result["configuration_hash"],
         "geometry_verified_only": args.geometry_verified_only,
         "render": not args.no_render,
+        "compact_outlines": compact_outlines,
     }
     publication_configuration_hash = sha256_bytes(
         canonical_json_bytes(configuration)
@@ -1709,6 +1980,11 @@ def main(argv=None):
         help="Publication root; each invocation writes an isolated runs/<run-id>/",
     )
     ap.add_argument("--no-render", action="store_true", help="Skip PDF/PNG/DXF")
+    ap.add_argument(
+        "--no-compact-outlines",
+        action="store_true",
+        help="Keep pure bounding-box layouts (skip verified true-shape compaction)",
+    )
     ap.add_argument(
         "--geometry-verified-only",
         action="store_true",
