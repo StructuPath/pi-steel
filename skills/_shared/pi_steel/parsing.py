@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -26,10 +27,14 @@ def parse_length_ft(raw: str) -> float:
     value = raw.strip()
     if "'" not in value:
         return float(value)
-    feet, _, inches = value.replace('"', "").partition("'")
-    return float(feet.replace("-", "").strip()) + (
-        float(inches.replace("-", "").strip()) / 12 if inches.strip() else 0
+    decimal = r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)"
+    match = re.fullmatch(
+        rf"({decimal})\s*'\s*(?:-?\s*({decimal})\s*\"?)?", value
     )
+    if match is None:
+        raise ValueError(f"Invalid feet-and-inches length: {raw!r}")
+    feet, inches = match.groups()
+    return float(feet) + (float(inches) / 12 if inches is not None else 0)
 
 
 def _package(

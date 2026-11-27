@@ -89,6 +89,38 @@ def test_validate_bom_malformed_quantity_returns_parse_error_and_exit_one(
     assert "ERROR: Could not parse BOM:" in result.stderr
 
 
+@pytest.mark.parametrize("length", ["-5'-6\"", "-0'-6\"", "5'-6-1\""])
+def test_validate_bom_invalid_feet_and_inches_returns_parse_error(tmp_path, length):
+    path = write_bom(
+        tmp_path,
+        f"SYNTHETIC-SRC-1,SYNTHETIC-M1,1,W14X30,A992,{length},30,"
+        "165,None,Synthetic,SYNTHETIC-SHEET,SYNTHETIC-DETAIL,fabricated_part",
+    )
+
+    result = run_validate(path)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "ERROR: Could not parse BOM:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_validate_bom_positive_feet_and_inches_has_correct_weight(tmp_path):
+    path = write_bom(
+        tmp_path,
+        "SYNTHETIC-SRC-1,SYNTHETIC-M1,1,W14X30,A992,5'-6\",30,165,None,"
+        "Synthetic,SYNTHETIC-SHEET,SYNTHETIC-DETAIL,fabricated_part",
+    )
+
+    result = run_validate(path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["status"] == "validated"
+    assert report["total_weight_lbs"] == 165
+    assert report["findings"] == []
+
+
 @pytest.mark.parametrize(
     ("row", "expected_code", "expected_status", "expected_exit"),
     [
