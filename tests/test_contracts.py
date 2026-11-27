@@ -321,6 +321,46 @@ def test_parse_length_ft_preserves_supported_formats(raw, expected):
     assert parse_length_ft(raw) == pytest.approx(expected)
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("24'-6 1/2\"", 24 + 6.5 / 12),
+        ("24' 6-1/2\"", 24 + 6.5 / 12),
+        ("24'-6-1/2\"", 24 + 6.5 / 12),
+        ("5'-0 1/2\"", 5 + 0.5 / 12),
+        ("5'-1/2\"", 5 + 0.5 / 12),
+        ("5' 1/2\"", 5 + 0.5 / 12),
+        ("5' - 1/2\"", 5 + 0.5 / 12),
+        ("5'-6 1/2", 5 + 6.5 / 12),
+        ("5'6 3/8\"", 5 + (6 + 3 / 8) / 12),
+        ("6\"", 0.5),
+        ("6 1/2\"", 6.5 / 12),
+        ("1/2\"", 0.5 / 12),
+        ("0.5\"", 0.5 / 12),
+    ],
+)
+def test_parse_length_ft_accepts_fractional_inch_callouts(raw, expected):
+    assert parse_length_ft(raw) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "5'-3/2\"",      # improper fraction is a transcription error
+        "5'-1/0\"",      # zero denominator
+        "5'-6 1/2'",     # foot mark where the inch mark belongs
+        "5'61/2\"",      # no separator: 61/2 vs 6 1/2 is ambiguous
+        "1/2",           # bare fraction without an inch mark is ambiguous
+        "inf\"",
+        "6\" junk",
+        "\"",
+    ],
+)
+def test_parse_length_ft_rejects_ambiguous_fraction_callouts(raw):
+    with pytest.raises(ValueError):
+        parse_length_ft(raw)
+
+
 def test_parse_length_ft_preserves_decimal_nan_for_downstream_validation():
     assert math.isnan(parse_length_ft("nan"))
 

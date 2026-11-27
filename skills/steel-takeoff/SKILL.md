@@ -61,7 +61,7 @@ jq '[.[] | select(.type == "C" and .weight_per_ft >= 15 and .weight_per_ft <= 30
 Read the structural drawings and extract:
 - Member marks (e.g., B1, B2, C1, G1, BR1)
 - Member sizes (e.g., W14X30, HSS6X6X1/4, L4X4X3/8)
-- Lengths (from grid dimensions or explicit call-outs, use feet-inches: 28'-6")
+- Lengths (from grid dimensions or explicit call-outs, use feet-inches: 28'-6"; fractional inches are accepted as on the drawing: 28'-6 1/2")
 - Quantities (count per mark — check symmetry, typical bays, similar conditions)
 - Connection types at each end
 

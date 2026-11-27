@@ -1,5 +1,5 @@
 {
-  "_comment": "steel-cutlist job template. Copy, fill in, and delete the _comment keys. Lengths: provide exactly one of length_in or length_ft per entry; length_ft accepts a number (28.5) or a feet-inches string (\"28'-6\").",
+  "_comment": "steel-cutlist job template. Copy, fill in, and delete the _comment keys. Lengths: provide exactly one of length_in or length_ft per entry; length_ft accepts a number (28.5) or a feet-inches string (\"28'-6\", \"28'-6 1/2\\\"\").",
   "job_name": "JOB NAME",
   "customer": "",
   "project_id": "PROJECT-ID",

@@ -23,18 +23,71 @@ def normalize_designation(value: Any) -> str:
     return value.upper().replace(" ", "").strip()
 
 
-def parse_length_ft(raw: str) -> float:
-    value = raw.strip()
-    if "'" not in value:
-        return float(value)
-    decimal = r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)"
+_DECIMAL_PATTERN = r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)"
+
+
+def _parse_inches(text: str, allow_lone_fraction: bool) -> float | None:
+    """Inches from decimal, mixed-number, or bare-fraction notation.
+
+    Accepts `6`, `6.5`, `6 1/2`, `6-1/2`, and — only where the caller saw an
+    explicit separator or inch mark, so `5'1/2"` stays rejected — a bare
+    proper fraction like `1/2`. Returns None for anything else.
+    """
     match = re.fullmatch(
-        rf"({decimal})\s*'\s*(?:-?\s*({decimal})\s*\"?)?", value
+        rf"({_DECIMAL_PATTERN})(?:[\s-]+([0-9]+)\s*/\s*([0-9]+))?"
+        rf"|([0-9]+)\s*/\s*([0-9]+)",
+        text,
     )
     if match is None:
-        raise ValueError(f"Invalid feet-and-inches length: {raw!r}")
-    feet, inches = match.groups()
-    return float(feet) + (float(inches) / 12 if inches is not None else 0)
+        return None
+    whole, numerator, denominator, lone_numerator, lone_denominator = match.groups()
+    if lone_numerator is not None:
+        if not allow_lone_fraction:
+            return None
+        whole, numerator, denominator = "0", lone_numerator, lone_denominator
+    value = float(whole)
+    if numerator is not None:
+        if not 0 < int(numerator) < int(denominator):
+            return None
+        value += int(numerator) / int(denominator)
+    return value
+
+
+def parse_length_ft(raw: str) -> float:
+    value = raw.strip()
+    if "'" not in value and '"' not in value:
+        return float(value)
+    error = ValueError(f"Invalid feet-and-inches length: {raw!r}")
+    if "'" in value:
+        feet_text, _, segment = value.partition("'")
+        if re.fullmatch(_DECIMAL_PATTERN, feet_text.strip()) is None:
+            raise error
+        feet = float(feet_text.strip())
+        stripped = segment.strip()
+        had_separator = bool(segment) and (
+            segment[0].isspace() or stripped.startswith("-")
+        )
+        dashed = stripped.startswith("-")
+        if dashed:
+            stripped = stripped[1:].strip()
+        if stripped.endswith('"'):
+            stripped = stripped[:-1].strip()
+        if "'" in stripped or '"' in stripped:
+            raise error
+        if not stripped:
+            if dashed:
+                raise error
+            return feet
+        inches = _parse_inches(stripped, allow_lone_fraction=had_separator)
+        if inches is None:
+            raise error
+        return feet + inches / 12
+    # Inches-only values must carry an explicit trailing inch mark.
+    if value.endswith('"'):
+        inches = _parse_inches(value[:-1].strip(), allow_lone_fraction=True)
+        if inches is not None:
+            return inches / 12
+    raise error
 
 
 def _package(
