@@ -4,6 +4,20 @@ All notable changes to `@structupath/pi-steel` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-11-27
+
+### Added
+
+- Fractional-inch length call-outs, the way lengths actually appear on
+  steel drawings and BOMs, now parse everywhere `parse_length_ft` is used
+  (takeoff BOM rows, cut-list jobs): `24'-6 1/2"`, `24' 6-1/2"`,
+  `5'-1/2"`, and explicitly marked inches-only values such as `6 1/2"`.
+  The strictness introduced with the feet-and-inches validation is
+  preserved and extended: a bare fraction with no separator after the
+  foot mark (`5'1/2"`), an improper or zero-denominator fraction, an
+  unmarked bare fraction, and ambiguous run-together digits (`5'61/2"`)
+  are all rejected with a clear error instead of being misread.
+
 ## [0.6.0] - 2026-08-24
 
 ### Added

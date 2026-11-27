@@ -35,10 +35,16 @@ if [ ! -f "$BOM_FILE" ]; then
     exit 1
 fi
 
-python3 - "$BOM_FILE" "$CONN_PCT" "$MISC_PCT" <<'PYTHON'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHARED_ROOT="$SCRIPT_DIR/../../_shared"
+
+python3 - "$BOM_FILE" "$CONN_PCT" "$MISC_PCT" "$SHARED_ROOT" <<'PYTHON'
 import csv
 import sys
 import os
+
+sys.path.insert(0, sys.argv[4])
+from pi_steel.parsing import parse_length_ft
 
 bom_file = sys.argv[1]
 conn_pct = float(sys.argv[2]) / 100.0
@@ -72,14 +78,14 @@ with open(bom_file) as f:
         length_str = row.get("Length_ft", "0").strip()
         unit_wt_str = row.get("Unit_Wt_plf", "0").strip()
 
-        # Parse length — support both decimal (28.5) and feet-inches (28'-6")
-        if "'" in length_str:
-            parts = length_str.replace('"', '').split("'")
-            feet = float(parts[0].replace('-', '').strip())
-            inches = float(parts[1].replace('-', '').strip()) if len(parts) > 1 and parts[1].strip() else 0
-            length = feet + inches / 12.0
-        else:
-            length = float(length_str) if length_str else 0
+        # Shared parser: decimal (28.5), feet-inches (28'-6"), and
+        # fractional-inch call-outs (28'-6 1/2") all behave exactly as in
+        # validate-bom and the cut-list engine.
+        try:
+            length = parse_length_ft(length_str) if length_str else 0
+        except ValueError as exc:
+            print(f"ERROR: {mark}: {exc}", file=sys.stderr)
+            sys.exit(1)
 
         unit_wt = float(unit_wt_str) if unit_wt_str else 0
 

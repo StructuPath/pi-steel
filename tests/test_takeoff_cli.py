@@ -62,6 +62,44 @@ def test_calculate_weight_reports_exact_synthetic_totals_without_pricing(
     assert "No price was calculated." in result.stdout
     assert "$" not in result.stdout
     assert "cost sensitivity" not in result.stdout.lower()
+
+
+def test_calculate_weight_parses_fractional_inch_lengths(tmp_path):
+    bom = tmp_path / "synthetic-fractional.csv"
+    bom.write_text(
+        "Source_ID,Mark,Qty,Size,Grade,Length_ft,Unit_Wt_plf\n"
+        "SYNTHETIC-W1,SYNTHETIC-W1,2,W14X30,A992,28'-6 1/2\",30\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", CALCULATE_WEIGHT, bom],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    # 2 pieces x (28 + 6.5/12) ft x 30 plf = 1712.5 lb, displayed rounded.
+    assert "1,712 lb" in result.stdout or "1,713 lb" in result.stdout
+
+
+def test_calculate_weight_rejects_malformed_length_with_clear_error(tmp_path):
+    bom = tmp_path / "synthetic-malformed.csv"
+    bom.write_text(
+        "Source_ID,Mark,Qty,Size,Grade,Length_ft,Unit_Wt_plf\n"
+        "SYNTHETIC-W1,SYNTHETIC-W1,1,W14X30,A992,5'--6\",30\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", CALCULATE_WEIGHT, bom],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "Invalid feet-and-inches length" in result.stderr
+    assert "Traceback" not in result.stderr
     assert "estimated cost" not in result.stdout.lower()
 
 
