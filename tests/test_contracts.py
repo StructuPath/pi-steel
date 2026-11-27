@@ -21,7 +21,7 @@ from pi_steel.contracts import (
 )
 from pi_steel.run_manifest import PACKAGE_STATUSES, RUN_OUTCOMES
 from pi_steel.geometry_verify import group_plate_items
-from pi_steel.parsing import adapt_legacy_bom_csv, adapt_legacy_nest
+from pi_steel.parsing import adapt_legacy_bom_csv, adapt_legacy_nest, parse_length_ft
 from pi_steel.validation import (
     acknowledge_finding,
     eligible_on_hand_stock,
@@ -296,6 +296,57 @@ def test_rfq_handoff_schema_requires_lineage_and_closed_typed_rows():
     malformed_row["rows"][0]["sheets_needed"] = "one"
     malformed_row["rows"][0]["private_note"] = "must not pass through"
     assert list(validator.iter_errors(malformed_row))
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("5.5", 5.5),
+        ("5'", 5),
+        ("5'6\"", 5.5),
+        ("5'-6\"", 5.5),
+        (" 5 ' - 6 \" \t", 5.5),
+        (" 5 ' \t", 5),
+        ("5'6", 5.5),
+        ("5.5'-6.5\"", 5.5 + 6.5 / 12),
+        (".5'-.5\"", 0.5 + 0.5 / 12),
+        ("0'", 0),
+        ("0", 0),
+        ("-5.5", -5.5),
+        ("inf", math.inf),
+        ("-inf", -math.inf),
+    ],
+)
+def test_parse_length_ft_preserves_supported_formats(raw, expected):
+    assert parse_length_ft(raw) == pytest.approx(expected)
+
+
+def test_parse_length_ft_preserves_decimal_nan_for_downstream_validation():
+    assert math.isnan(parse_length_ft("nan"))
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "-5'-6\"",
+        "-0'-6\"",
+        "-5'",
+        "5'--6\"",
+        "5'-6-1\"",
+        "5-1'6\"",
+        "5''6\"",
+        "5'6'",
+        "5'-",
+        "5'6\"junk",
+        "5'6\"\"",
+        "5'1/2\"",
+        "nan'6\"",
+        "5'inf\"",
+    ],
+)
+def test_parse_length_ft_rejects_negative_or_malformed_feet_and_inches(raw):
+    with pytest.raises(ValueError, match="Invalid feet-and-inches length"):
+        parse_length_ft(raw)
 
 
 def test_legacy_bom_preserves_marks_grades_lengths_weights_and_explicit_ids():
