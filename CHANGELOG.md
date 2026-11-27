@@ -4,6 +4,25 @@ All notable changes to `@structupath/pi-steel` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-24
+
+### Added
+
+- Compaction-aware refill: verified true-shape compaction now runs inside
+  the packing loop, not only after it. When a part fails to fit on every
+  open plate, eligible plates that changed since their last attempt are
+  compacted (behind the same independent verification gate) and the
+  insertion is retried against the rebuilt free rectangles before a new
+  sheet is opened or the part is stranded — so recovered plate becomes
+  fewer purchased sheets and fewer `stock_exhausted` parts, never just a
+  bigger remnant. Refilled parts keep full bounding-box clearance to
+  everything on the plate, a rejected compaction permanently disqualifies
+  that plate and packing proceeds exactly as the bounding-box flow would,
+  and with compaction enabled a run never uses more plates or strands
+  more parts than with it disabled. `compaction.recovered_in` and
+  `compaction.passes` accumulate across attempts on the same plate; no
+  schema changes.
+
 ## [0.5.0] - 2026-08-24
 
 ### Added

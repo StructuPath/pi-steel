@@ -388,6 +388,109 @@ def test_gate_discards_a_corrupt_compaction(monkeypatch):
     assert warnings[0]["severity"] == "warning"
 
 
+# ---------------------------------------------------------------------------
+# Compaction-aware refill: recovered plate becomes fewer sheets (v0.6)
+# ---------------------------------------------------------------------------
+
+def refill_job(stock_qty):
+    job = interlock_job()
+    job["job_name"] = "TSC-REFILL"
+    job["stock"][0]["qty"] = stock_qty
+    job["parts"].append(
+        {
+            "source_id": "TSC-SRC-FILL",
+            "name": "TSC-FILL",
+            "width": 4,
+            "height": 6,
+            "qty": 1,
+            "rotatable": False,
+        }
+    )
+    return job
+
+
+def test_refill_avoids_opening_a_second_sheet():
+    boxed = nest.run_job(refill_job(2), compact_outlines=False)
+    assert boxed["plates_used"] == 2
+
+    compacted = nest.run_job(refill_job(2))
+    assert compacted["plates_used"] == 1
+    assert compacted["unplaced"] == []
+    assert compacted["outcome"] == "review_required"
+    assert compacted["verification"]["status"] == "verified"
+
+    plate = compacted["plate_reports"][0]
+    assert plate["compaction"]["accepted"] is True
+    assert plate["compaction"]["recovered_in"] == 4.75
+    # The filler landed in the strip the compacted Z freed, one clearance
+    # off the Z's full-height right face at 3.5 + 7.75 + 0.25.
+    fill = _by_label(compacted, "TSC-FILL")
+    assert (fill["x"], fill["y"]) == (11.5, 0.0)
+
+
+def test_refill_rescues_a_stranded_part():
+    boxed = nest.run_job(refill_job(1), compact_outlines=False)
+    assert boxed["outcome"] == "blocked"
+    assert [row["reason"] for row in boxed["unplaced"]] == ["stock_exhausted"]
+
+    compacted = nest.run_job(refill_job(1))
+    assert compacted["unplaced"] == []
+    assert compacted["outcome"] == "review_required"
+    assert compacted["plates_used"] == 1
+
+
+def test_refill_never_uses_more_plates_or_strands_more_parts():
+    for job_factory in (lambda: refill_job(1), lambda: refill_job(2), interlock_job):
+        on = nest.run_job(job_factory())
+        off = nest.run_job(job_factory(), compact_outlines=False)
+        assert on["plates_used"] <= off["plates_used"]
+        assert (
+            sum(row["quantity"] for row in on["unplaced"])
+            <= sum(row["quantity"] for row in off["unplaced"])
+        )
+
+
+def test_refill_is_deterministic():
+    first = nest.run_job(refill_job(2))
+    second = nest.run_job(refill_job(2))
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_midpack_rejection_falls_back_to_bounding_box_flow(monkeypatch):
+    real = nest.compact_placements
+
+    def corrupting(placements, clearance):
+        recovered, passes = real(placements, clearance)
+        for placement in placements:
+            if placement.label == "TSC-Z":
+                placement.x -= 1.0
+                recovered += 1.0
+        return recovered, passes
+
+    monkeypatch.setattr(nest, "compact_placements", corrupting)
+    result = nest.run_job(refill_job(2))
+
+    # The corrupt mid-pack attempt is rejected, the plate is disqualified,
+    # and packing proceeds exactly as the bounding-box flow would have.
+    assert result["plates_used"] == 2
+    assert result["outcome"] == "review_required"
+    assert result["verification"]["status"] == "verified"
+    z_part = _by_label(result, "TSC-Z")
+    assert (z_part["x"], z_part["y"]) == (8.25, 0.0)
+    fill = _by_label(result, "TSC-FILL")
+    assert (fill["x"], fill["y"]) == (0.0, 0.0)
+    warnings = [
+        finding
+        for finding in result["validation_findings"]
+        if finding["code"] == "COMPACTION_REJECTED"
+    ]
+    assert len(warnings) == 1
+    assert all(
+        plate["compaction"]["accepted"] is False
+        for plate in result["plate_reports"]
+    )
+
+
 def test_accepted_plate_survives_result_level_verification():
     # verify_nest_placements dispatches accepted plates to the true-shape
     # verifier; corrupting a published placement must now fail verification.
